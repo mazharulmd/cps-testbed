@@ -94,7 +94,8 @@ The whole testbed (HELICS, GridPACK, NS-3, the federates, the web app and the No
 | Tag | Contents | Use it for |
 |---|---|---|
 | `latest` | The current full testbed: live GridPACK, IEEE 14–300 bus cases, multi-PMU NS-3 network, control center, web app (8080) and Node-RED dashboard (1880) | Running the testbed |
-| `v2` | The same image as `latest` at the time of the multi-PMU release, under a fixed name | Reproducing published results; it will not change when `latest` is updated |
+| `v2.1` | The redesigned web app (project header, colour-coded results, phone layout), bus-number validation and automatic opening of finished runs; same simulation code as `v2` | A fixed name for the current release |
+| `v2` | The multi-PMU release used for the results in this README and the technical report, under a fixed name | Reproducing published results; it will not change when `latest` is updated |
 | `base` | The earlier prebuilt image with the compiled HELICS, GridPACK and NS-3 and the legacy single-PMU demo only | Building from this repo (`docker/Dockerfile` layers onto it); not meant to be run directly |
 
 The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this repo; they are inside the image.
