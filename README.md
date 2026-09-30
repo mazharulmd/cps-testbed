@@ -16,6 +16,8 @@ A **web application** (`webapp/`, port 8080) lets users pick a bus system and sc
       └──── setpoint applied ◀── NS-3: generator node ◀── command ────────┘
 ```
 
+📄 **Technical report:** [CPS_Testbed_Technical_Report_v2.pdf](docs/CPS_Testbed_Technical_Report_v2.pdf) ([Word version](docs/CPS_Testbed_Technical_Report_v2.docx)): architecture, validation, PMU placement and experiment results for the single-PMU prototype and the extended multi-PMU testbed.
+
 ## Features
 
 - **Bus systems:** IEEE 14, 30, 39, 57, 118 and 300 (`cases/`, generated from MATPOWER data by `tools/make_cases.py`). GridPACK agrees with an independent Newton-Raphson solver to within 5×10⁻⁷ pu on all six.
@@ -78,6 +80,7 @@ tools/           make_cases.py
 scenario/        legacy single-PMU scripts and sample results
 node-red/        legacy dashboard flows and settings
 docker/          Dockerfile (multi-stage), Dockerfile.dev, build_petsc.sh, start.sh
+docs/            technical report (PDF and Word)
 ```
 
 ## Run it locally (Docker)
