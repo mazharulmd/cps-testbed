@@ -70,7 +70,7 @@ def main(cfg_path):
     log = open(os.path.join(out, "cc_log.csv"), "w", newline="")
     lw = csv.writer(log)
     lw.writerow(["t", "release_t", "helics_t", "pmus_received", "pmus_expected", "m", "observable", "J", "threshold",
-                 "alarm", "first_alarm", "removed_pmus", "max_v_est", "max_v_bus", "min_v_est", "min_v_bus",
+                 "alarm", "first_J", "first_alarm", "removed_pmus", "max_v_est", "max_v_bus", "min_v_est", "min_v_bus",
                  "violations", "commands"])
     est = open(os.path.join(out, "cc_estimates.csv"), "w", newline="")
     ew = csv.writer(est)
@@ -120,7 +120,7 @@ def main(cfg_path):
                                  "reason": f"V{bus}={v:.3f}"})
             lw.writerow([f"{s['t']:.6f}", f"{s['release_t']:.6f}", f"{t:.6f}", len(s["pmus"]), s["expected"],
                          r["m"], int(r["observable"]), f"{r['J']:.3f}", f"{r['threshold']:.3f}", int(r["alarm"]),
-                         int(r["first_alarm"]), " ".join(str(layout.pmus[p]["bus"]) for p in r["removed_pmus"]),
+                         f"{r['first_J']:.3f}", int(r["first_alarm"]), " ".join(str(layout.pmus[p]["bus"]) for p in r["removed_pmus"]),
                          f"{vm.max():.5f}", net.bus_ids[int(vm.argmax())], f"{vm.min():.5f}",
                          net.bus_ids[int(vm.argmin())], len(viol), len(cmds)])
             ew.writerow([f"{s['t']:.6f}"] + [f"{x:.5f}" for x in vm])
