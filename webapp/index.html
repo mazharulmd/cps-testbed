@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CPS Testbed</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+:root {
+  --bg: #f5f7fa; --panel: #ffffff; --text: #1c2430; --muted: #5c6878; --border: #dde3ea;
+  --accent: #1f6feb; --accent-weak: #e7f0ff; --ok: #1a7f37; --warn: #b35900; --bad: #c62828;
+  --true: #1565c0; --est: #e53935; --limit: #8a6d00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f141a; --panel: #171e27; --text: #e3e8ee; --muted: #93a0b0; --border: #2a3441;
+    --accent: #4c8dff; --accent-weak: #1b2a44; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    --true: #58a6ff; --est: #ff7b72; --limit: #d29922;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { margin: 0; font-size: 20px; }
+header p { margin: 2px 0 0; color: var(--muted); }
+main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; align-items: start; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px; } }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.panel h2 { font-size: 15px; margin: 0 0 10px; }
+fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 0 0 10px; padding: 8px 10px 10px; }
+legend { color: var(--muted); font-size: 12px; padding: 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+input, select { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+button { font: inherit; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 6px 10px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; padding: 9px; font-weight: 600; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.presets button { font-size: 12px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.stack { display: grid; gap: 16px; min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; }
+tbody tr { cursor: pointer; }
+tbody tr:hover, tbody tr.sel { background: var(--accent-weak); }
+.scroll { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; border: 1px solid var(--border); }
+.badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); } .badge.warn { color: var(--warn); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.kpi { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.kpi .v { font-size: 20px; font-weight: 600; }
+.kpi .l { color: var(--muted); font-size: 12px; }
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1200px) { .charts { grid-template-columns: 1fr; } }
+.chart { height: 280px; border: 1px solid var(--border); border-radius: 8px; }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 180px; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 6px 0 0; }
+.muted { color: var(--muted); }
+.flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CPS Testbed</h1>
+  <p>HELICS co-simulation of GridPACK (power grid) and NS-3 (PMU network) with a control center: state estimation, bad data detection and voltage control.</p>
+</header>
+<main>
+  <section class="panel">
+    <h2>New experiment</h2>
+    <div class="presets">
+      <button data-preset="baseline">Baseline</button>
+      <button data-preset="fault">Generator fault</button>
+      <button data-preset="simple">Fault + simple FDI</button>
+      <button data-preset="stealthy">Fault + stealthy FDI</button>
+      <button data-preset="delay">Fault + delay attack</button>
+      <button data-preset="loss">5% packet loss</button>
+    </div>
+    <form id="f">
+      <fieldset><legend>Power system</legend>
+        <label>Bus system</label><select name="case"></select>
+        <div class="hint" id="caseinfo"></div>
+        <div class="row">
+          <div><label>Duration (s)</label><input name="duration" type="number" value="10" min="1" max="60" step="1"></div>
+          <div><label>Grid step (s)</label><input name="grid_step" type="number" value="0.5" min="0.1" max="5" step="0.1"></div>
+        </div>
+        <div class="row">
+          <div><label>Solver</label><select name="solver"><option value="gridpack">GridPACK</option><option value="builtin">Built-in NR</option></select></div>
+          <div><label>Event</label><select name="event_type"><option value="none">None</option><option value="avr">Generator AVR fault</option><option value="load">Load step</option></select></div>
+        </div>
+        <div class="row" id="eventrow">
+          <div><label id="evbuslabel">Event bus</label><input name="event_bus" type="number" min="1"></div>
+          <div><label id="evvallabel">Setpoint (pu)</label><input name="event_val" type="number" step="0.01"></div>
+          <div><label>Event time (s)</label><input name="event_t" type="number" value="4" step="0.5" min="0"></div>
+        </div>
+      </fieldset>
+      <fieldset><legend>PMUs and network</legend>
+        <div class="row">
+          <div><label>PMU placement</label><select name="placement"><option value="1">Minimum (observable)</option><option value="2">Redundant (each bus twice)</option></select></div>
+          <div><label>Reporting rate (fps)</label><input name="rate" type="number" value="30" min="1" max="120"></div>
+        </div>
+        <div class="row">
+          <div><label>Link latency (ms)</label><input name="latency" type="number" value="10" min="0.1" step="0.1"></div>
+          <div><label>Latency spread (±)</label><input name="latency_spread" type="number" value="0.5" min="0" max="0.95" step="0.05"></div>
+        </div>
+        <div class="row">
+          <div><label>Jitter (ms)</label><input name="jitter" type="number" value="2" min="0" step="0.5"></div>
+          <div><label>Packet loss (0–1)</label><input name="loss" type="number" value="0" min="0" max="0.9" step="0.01"></div>
+        </div>
+        <label>PDC wait window (ms)</label><input name="pdc_wait" type="number" value="20" min="1">
+      </fieldset>
+      <fieldset><legend>Attack</legend>
+        <div class="row">
+          <div><label>Type</label><select name="attack">
+            <option value="none">None</option><option value="fdi-simple">FDI – simple</option>
+            <option value="fdi-stealthy">FDI – stealthy</option><option value="delay">Delay</option><option value="drop">Drop</option></select></div>
+          <div><label>Target bus</label><input name="target" type="number" min="1" placeholder="auto"></div>
+        </div>
+        <div class="row">
+          <div><label>Fake voltage (pu)</label><input name="fake" type="number" step="0.01" placeholder="auto"></div>
+          <div><label>Extra delay (ms)</label><input name="attack_delay" type="number" value="100" min="0"></div>
+        </div>
+        <div class="row">
+          <div><label>Start (s)</label><input name="attack_start" type="number" value="4" step="0.5" min="0"></div>
+          <div><label>End (s)</label><input name="attack_end" type="number" value="9" step="0.5" min="0"></div>
+        </div>
+      </fieldset>
+      <fieldset><legend>Control center</legend>
+        <div class="row">
+          <div><label>Bad data detection</label><select name="bdd"><option value="on">On</option><option value="off">Off</option></select></div>
+          <div><label>Voltage control</label><select name="control"><option value="on">On</option><option value="off">Off</option></select></div>
+        </div>
+        <div class="row">
+          <div><label>V min (pu)</label><input name="vmin" type="number" value="0.94" step="0.01"></div>
+          <div><label>V max (pu)</label><input name="vmax" type="number" value="1.08" step="0.01"></div>
+        </div>
+        <div class="row">
+          <div><label>Run name</label><input name="name" value="web" pattern="[A-Za-z0-9_-]{1,40}"></div>
+          <div><label>Random seed</label><input name="seed" type="number" value="1" min="1"></div>
+        </div>
+      </fieldset>
+      <button class="primary" type="submit">Run experiment</button>
+      <div class="hint" id="submitmsg"></div>
+    </form>
+  </section>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="flex" style="justify-content:space-between"><h2 style="margin:0">Queue</h2><span class="muted" id="queueinfo"></span></div>
+      <div id="jobs"></div>
+    </section>
+    <section class="panel">
+      <h2>Runs</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Run</th><th>System</th><th>Attack</th><th>Loss</th><th>BDD</th><th>Control</th><th>Violation (s)</th><th>Detection</th><th>Delivery</th></tr></thead>
+        <tbody id="runs"></tbody>
+      </table></div>
+    </section>
+    <section class="panel" id="detail" hidden>
+      <div class="flex" style="justify-content:space-between">
+        <h2 style="margin:0" id="dtitle"></h2>
+        <div class="flex"><label style="margin:0">Bus</label><input id="busin" type="number" style="width:90px"><button id="busbtn">Show</button></div>
+      </div>
+      <p class="muted" id="dsub"></p>
+      <div class="kpis" id="kpis"></div>
+      <div class="charts">
+        <div><div class="chart" id="c_v"></div></div>
+        <div><div class="chart" id="c_max"></div></div>
+        <div><div class="chart" id="c_j"></div></div>
+        <div><div class="chart" id="c_lat"></div></div>
+        <div><div class="chart" id="c_pmu"></div></div>
+        <div><div class="chart" id="c_comp"></div></div>
+      </div>
+      <h2 style="margin-top:14px">Commands and events</h2>
+      <div class="scroll"><table><thead><tr><th>Applied (s)</th><th>Generator</th><th>Setpoint</th><th>Issued (s)</th><th>Delivered (s)</th><th>Reason</th></tr></thead><tbody id="cmds"></tbody></table></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const f = $("#f");
+let CASES = {}, current = null, charts = {};
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const api = (p, o) => fetch(p, o).then(async r => { if (!r.ok) throw new Error((await r.text()) || r.status); return r.json(); });
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function caseInfo() {
+  const c = CASES[f.case.value]; if (!c) return;
+  $("#caseinfo").textContent = `${c.buses} buses, ${c.branches} branches, ${c.gens.length} generators, ${c.pmus_min} PMUs at minimum placement. Highest base-case voltage: bus ${c.max_v_bus} (${c.max_v} pu).`;
+}
+function eventRow() {
+  const t = f.event_type.value;
+  $("#eventrow").style.display = t === "none" ? "none" : "grid";
+  $("#eventrow").style.gridTemplateColumns = "1fr 1fr 1fr";
+  $("#evbuslabel").textContent = t === "avr" ? "Generator bus" : "Load bus";
+  $("#evvallabel").textContent = t === "avr" ? "Faulty setpoint (pu)" : "Load change (%)";
+}
+function faultGen() { const g = CASES[f.case.value].gens; return g[Math.floor(g.length / 2)]; }
+
+const PRESETS = {
+  baseline: {event_type: "none", attack: "none", loss: 0, bdd: "on", control: "on", name: "baseline"},
+  fault: {event_type: "avr", attack: "none", loss: 0, name: "fault"},
+  simple: {event_type: "avr", attack: "fdi-simple", loss: 0, name: "fault_fdi_simple"},
+  stealthy: {event_type: "avr", attack: "fdi-stealthy", loss: 0, name: "fault_fdi_stealthy"},
+  delay: {event_type: "avr", attack: "delay", attack_delay: 100, loss: 0, name: "fault_delay"},
+  loss: {event_type: "none", attack: "none", loss: 0.05, name: "loss5"},
+};
+document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
+  const p = PRESETS[b.dataset.preset];
+  for (const [k, v] of Object.entries(p)) f[k].value = v;
+  if (p.event_type === "avr") {
+    const g = faultGen();
+    f.event_bus.value = g; f.event_val.value = 1.12; f.event_t.value = 4;
+    f.attack_start.value = 4; f.attack_end.value = 9;
+    f.target.value = p.attack === "none" ? "" : g; f.fake.value = p.attack.startsWith("fdi") ? 1.02 : "";
+  } else { f.target.value = ""; f.fake.value = ""; }
+  eventRow();
+});
+
+f.case.onchange = caseInfo;
+f.event_type.onchange = eventRow;
+f.onsubmit = async e => {
+  e.preventDefault();
+  const num = n => f[n].value === "" ? null : Number(f[n].value);
+  const body = {case: f.case.value, name: f.name.value, duration: num("duration"), grid_step: num("grid_step"),
+    rate: num("rate"), solver: f.solver.value, placement: Number(f.placement.value), latency: num("latency"),
+    latency_spread: num("latency_spread"), jitter: num("jitter"), loss: num("loss"), pdc_wait: num("pdc_wait"),
+    attack: f.attack.value, target: num("target"), fake: num("fake"), attack_start: num("attack_start"),
+    attack_end: num("attack_end"), attack_delay: num("attack_delay"), bdd: f.bdd.value, control: f.control.value,
+    vmin: num("vmin"), vmax: num("vmax"), seed: num("seed"),
+    event: f.event_type.value === "none" ? "none" : `${f.event_type.value}:${f.event_bus.value}:${f.event_val.value}:${f.event_t.value}`};
+  try { const j = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    $("#submitmsg").textContent = `Queued job ${j.id}.`; refreshJobs(); }
+  catch (err) { $("#submitmsg").textContent = "Could not start: " + err.message; }
+};
+
+let lastDone = new Set();
+async function refreshJobs() {
+  const jobs = await api("/api/jobs");
+  const active = jobs.filter(j => j.status === "queued" || j.status === "running").length;
+  $("#queueinfo").textContent = active ? `${active} active` : "idle";
+  $("#jobs").innerHTML = jobs.length ? jobs.slice(0, 5).map(j => `
+    <div style="margin-bottom:8px"><span class="badge ${j.status === "done" ? "ok" : j.status === "failed" ? "bad" : "warn"}">${esc(j.status)}</span>
+    <b>${esc(j.request.name)}</b> <span class="muted">IEEE ${esc(j.request.case)} · attack ${esc(j.request.attack)}${j.run_id ? " · " + esc(j.run_id) : ""}</span>
+    ${j.status === "running" || j.status === "failed" ? `<pre>${esc(j.log_tail || "starting…")}</pre>` : ""}</div>`).join("") : '<p class="muted">No jobs yet. Choose a preset or set parameters, then run.</p>';
+  const done = jobs.filter(j => j.status === "done").map(j => j.run_id);
+  if (done.some(id => !lastDone.has(id))) { await refreshRuns(); if (lastDone.size) openRun(done[0]); }
+  lastDone = new Set(done);
+}
+
+async function refreshRuns() {
+  const runs = await api("/api/runs");
+  $("#runs").innerHTML = runs.map(r => `<tr data-id="${esc(r.id)}" class="${r.id === current ? "sel" : ""}">
+    <td>${esc(r.name)}<div class="muted" style="font-size:11px">${esc(r.id.slice(0, 15))}</div></td><td>IEEE ${esc(r.case)}</td><td>${esc(r.attack)}</td>
+    <td>${r.loss}</td><td>${esc(r.bdd)}</td><td>${esc(r.control)}</td>
+    <td>${r.violation_s > 1 ? `<span class="badge bad">${r.violation_s}</span>` : r.violation_s}</td>
+    <td>${r.detection == null ? "–" : r.detection + "%"}</td><td>${(100 * r.delivery).toFixed(1)}%</td></tr>`).join("");
+  document.querySelectorAll("#runs tr").forEach(tr => tr.onclick = () => openRun(tr.dataset.id));
+}
+
+function chart(id) { charts[id] ||= echarts.init(document.getElementById(id)); return charts[id]; }
+const base = title => ({
+  title: {text: title, left: 8, top: 6, textStyle: {fontSize: 13, color: css("--text"), fontWeight: 500}},
+  grid: {left: 58, right: 16, top: 42, bottom: 40}, tooltip: {trigger: "axis"},
+  legend: {top: 6, right: 8, textStyle: {color: css("--muted")}},
+  textStyle: {color: css("--muted")}});
+const axis = (name, extra = {}) => ({type: "value", name, nameLocation: "middle", nameGap: 40, scale: true,
+  axisLine: {lineStyle: {color: css("--border")}}, splitLine: {lineStyle: {color: css("--border")}}, ...extra});
+
+async function openRun(id, bus) {
+  current = id; document.querySelectorAll("#runs tr").forEach(tr => tr.classList.toggle("sel", tr.dataset.id === id));
+  const [r, s] = await Promise.all([api(`/api/runs/${id}`), api(`/api/runs/${id}/series` + (bus ? `?bus=${bus}` : ""))]);
+  const S = r.summary, a = r.meta.args;
+  $("#detail").hidden = false;
+  $("#dtitle").textContent = `${S.name} – ${S.case}`;
+  $("#dsub").textContent = `${r.meta.pmus.length} PMUs · ${a.rate} fps · latency ${a.latency} ms ±${a.latency_spread * 100}% · loss ${a.loss} · attack ${a.attack}` +
+    (a.attack !== "none" ? ` on bus ${r.meta.target_bus} (${a.attack_start}–${a.attack_end} s)` : "") + ` · event ${a.event} · BDD ${a.bdd} · control ${a.control}`;
+  $("#busin").value = s.bus;
+  const at = S.attack, cc = S.control_center, n = S.network, g = S.grid;
+  const k = [
+    ["Frames delivered", (100 * n.delivery_ratio).toFixed(1) + "%"],
+    ["Latency p95", n.latency_ms.p95.toFixed(1) + " ms"],
+    ["Complete PDC sets", cc.complete_sets_pct + "%"],
+    ["SE error (clean)", cc.se_mean_abs_err_pu == null ? "–" : cc.se_mean_abs_err_pu.toFixed(4) + " pu"],
+    ["True violation time", g.true_violation_time_s + " s"],
+    ["Control commands", g.commands_applied],
+    ["False alarms", cc.false_alarm_rate_pct + "%"]];
+  if (at.type !== "none") k.push(["Attack detected", at.detection_rate_pct + "% of sets"],
+    ["Time to detect", at.time_to_detect_s == null ? "never" : at.time_to_detect_s + " s"],
+    ["Compromised PMUs", (at.compromised_pmus || []).join(", ")],
+    ["Target V true / seen", `${at.target_true_v_mean} / ${at.target_seen_v_mean}`]);
+  $("#kpis").innerHTML = k.map(([l, v]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join("");
+
+  const win = s.attack_window ? {silent: true, itemStyle: {color: "rgba(229,57,53,0.08)"}, data: [[{xAxis: s.attack_window[0]}, {xAxis: s.attack_window[1]}]]} : undefined;
+  const limit = {silent: true, symbol: "none", lineStyle: {color: css("--limit"), type: "dashed"}, label: {formatter: "V max", color: css("--limit")}, data: [{yAxis: s.vmax}]};
+  chart("c_v").setOption({...base(`Voltage at bus ${s.bus}`), xAxis: axis("time (s)", {scale: false}), yAxis: axis("pu"),
+    series: [
+      {name: "True (GridPACK)", type: "line", step: "end", data: s.truth, symbol: "none", lineStyle: {width: 2, color: css("--true")}, itemStyle: {color: css("--true")}, markArea: win, markLine: limit},
+      {name: "Estimated (control center)", type: "line", data: s.estimate, symbol: "none", lineStyle: {width: 1.5, color: css("--est")}, itemStyle: {color: css("--est")}}]}, true);
+  chart("c_max").setOption({...base("Highest bus voltage"), xAxis: axis("time (s)", {scale: false}), yAxis: axis("pu"),
+    series: [
+      {name: "True", type: "line", step: "end", data: s.truth_max, symbol: "none", lineStyle: {width: 2, color: css("--true")}, itemStyle: {color: css("--true")}, markArea: win, markLine: limit},
+      {name: "Estimated", type: "line", data: s.est_max, symbol: "none", lineStyle: {width: 1.5, color: css("--est")}, itemStyle: {color: css("--est")}}]}, true);
+  chart("c_j").setOption({...base("Bad data test (chi-square)"), xAxis: axis("time (s)", {scale: false}), yAxis: axis("J", {type: "log", scale: false}),
+    series: [
+      {name: "J", type: "line", data: s.chi2.map(x => [x[0], Math.max(x[1], 1e-3)]), symbol: "none", lineStyle: {width: 1.5, color: css("--accent")}, itemStyle: {color: css("--accent")}, markArea: win},
+      {name: "Threshold", type: "line", data: s.chi2.map(x => [x[0], x[2]]), symbol: "none", lineStyle: {type: "dashed", color: css("--limit")}, itemStyle: {color: css("--limit")}}]}, true);
+  chart("c_lat").setOption({...base("PMU → PDC latency"), tooltip: {trigger: "axis"},
+    xAxis: {type: "category", name: "ms", nameLocation: "middle", nameGap: 26, data: (s.latency_hist || []).map(x => x[0])},
+    yAxis: axis("frames", {scale: false}), series: [{name: "Frames", type: "bar", data: (s.latency_hist || []).map(x => x[1]), itemStyle: {color: css("--accent")}}]}, true);
+  chart("c_pmu").setOption({...base("Delivery per PMU"), xAxis: {type: "category", name: "PMU bus", nameLocation: "middle", nameGap: 26, data: s.pmus.map(p => p.bus)},
+    yAxis: axis("delivered", {min: 0, max: 1, scale: false}),
+    series: [{name: "Delivery", type: "bar", data: s.pmus.map(p => ({value: p.delivery, itemStyle: {color: p.attacked_frames ? css("--est") : css("--accent")}}))}]}, true);
+  chart("c_comp").setOption({...base("PDC set completeness"), xAxis: axis("time (s)", {scale: false}), yAxis: axis("fraction of PMUs", {min: 0, max: 1, scale: false}),
+    series: [{name: "Complete", type: "line", step: "end", data: s.completeness, symbol: "none", areaStyle: {opacity: 0.15}, lineStyle: {color: css("--accent")}, itemStyle: {color: css("--accent")}, markArea: win}]}, true);
+  $("#cmds").innerHTML = r.commands.length ? r.commands.map(c => `<tr><td>${esc(c.t_applied)}</td><td>${esc(c.gen_bus)}</td><td>${esc(c.vset)}</td>
+    <td>${esc(c.issued_t)}</td><td>${esc(c.delivered_t)}</td><td>${esc(c.reason)}</td></tr>`).join("") : '<tr><td colspan="6" class="muted">No commands</td></tr>';
+}
+$("#busbtn").onclick = () => current && openRun(current, $("#busin").value);
+window.addEventListener("resize", () => Object.values(charts).forEach(c => c.resize()));
+
+(async () => {
+  const cs = await api("/api/cases");
+  cs.forEach(c => CASES[c.case] = c);
+  f.case.innerHTML = cs.map(c => `<option value="${c.case}" ${c.case === "118" ? "selected" : ""}>IEEE ${c.case}-bus</option>`).join("");
+  caseInfo(); eventRow();
+  await refreshRuns();
+  const runs = await api("/api/runs"); if (runs.length) openRun(runs[0].id);
+  refreshJobs(); setInterval(refreshJobs, 2500);
+})();
+</script>
+</body>
+</html>

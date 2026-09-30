@@ -1,3 +1,5 @@
 .git
 scenario/results
+results
 *.tar.gz
+**/__pycache__
