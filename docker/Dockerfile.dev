@@ -1,7 +1,7 @@
 # Development image: the runtime image plus the compilers needed to rebuild
 # PETSc (for GridPACK) and the NS-3 federate.
 #   docker build -f docker/Dockerfile.dev -t cps-testbed:dev .
-ARG BASE_IMAGE=ghcr.io/mazharulmd/cps-testbed:latest
+ARG BASE_IMAGE=ghcr.io/mazharulmd/cps-testbed:base
 FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential gfortran cmake ninja-build pkg-config git wget ca-certificates \

@@ -5,7 +5,7 @@
 #
 # Stage 1 compiles what the base image is missing: the PETSc 3.16 library that
 # GridPACK's pf.x links against, and the multi-PMU NS-3 federate (helicstest).
-ARG BASE_IMAGE=ghcr.io/mazharulmd/cps-testbed:latest
+ARG BASE_IMAGE=ghcr.io/mazharulmd/cps-testbed:base
 
 FROM ${BASE_IMAGE} AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
