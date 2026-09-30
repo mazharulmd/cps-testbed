@@ -194,6 +194,16 @@ function eventRow() {
   $("#evvallabel").textContent = t === "avr" ? "Faulty setpoint (pu)" : "Load change (%)";
 }
 function faultGen() { const g = CASES[f.case.value].gens; return g[Math.floor(g.length / 2)]; }
+// bus numbers differ between systems: when the system changes, move event and
+// attack buses that do not exist in it to the default generator of the new system
+function fixBuses() {
+  const c = CASES[f.case.value]; if (!c) return;
+  const g = faultGen();
+  if (f.event_type.value === "avr" && !c.gens.includes(Number(f.event_bus.value))) f.event_bus.value = g;
+  if (f.event_type.value === "load" && !c.bus_ids.includes(Number(f.event_bus.value))) f.event_bus.value = c.max_v_bus;
+  if (f.target.value !== "" && !c.bus_ids.includes(Number(f.target.value)))
+    f.target.value = f.event_type.value === "avr" ? f.event_bus.value : "";
+}
 
 const PRESETS = {
   baseline: {event_type: "none", attack: "none", loss: 0, bdd: "on", control: "on", name: "baseline"},
@@ -215,8 +225,8 @@ document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
   eventRow();
 });
 
-f.case.onchange = caseInfo;
-f.event_type.onchange = eventRow;
+f.case.onchange = () => { caseInfo(); fixBuses(); };
+f.event_type.onchange = () => { eventRow(); fixBuses(); };
 f.onsubmit = async e => {
   e.preventDefault();
   const num = n => f[n].value === "" ? null : Number(f[n].value);
@@ -229,7 +239,10 @@ f.onsubmit = async e => {
     event: f.event_type.value === "none" ? "none" : `${f.event_type.value}:${f.event_bus.value}:${f.event_val.value}:${f.event_t.value}`};
   try { const j = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
     $("#submitmsg").textContent = `Queued job ${j.id}.`; refreshJobs(); }
-  catch (err) { $("#submitmsg").textContent = "Could not start: " + err.message; }
+  catch (err) {
+    let msg = err.message;
+    try { const d = JSON.parse(msg).detail; msg = typeof d === "string" ? d : d.map(x => `${x.loc.slice(-1)[0]}: ${x.msg}`).join("; "); } catch (_) {}
+    $("#submitmsg").textContent = "Could not start: " + msg; }
 };
 
 let lastDone = new Set();

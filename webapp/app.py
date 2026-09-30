@@ -157,6 +157,19 @@ def cases(_=Depends(auth)):
 def submit(req: RunRequest, _=Depends(auth)):
     if req.attack_end <= req.attack_start and req.attack != "none":
         raise HTTPException(422, "attack end must be after attack start")
+    info = {c["case"]: c for c in cases()}[req.case]
+    buses, gens = set(info["bus_ids"]), set(info["gens"])
+    if req.target is not None and req.target not in buses:
+        raise HTTPException(422, f"target bus {req.target} is not in IEEE {req.case} "
+                                 f"(buses {min(buses)}-{max(buses)})")
+    if req.event != "none":
+        kind, bus = req.event.split(":")[:2]
+        bus = int(bus)
+        if kind == "avr" and bus not in gens:
+            raise HTTPException(422, f"bus {bus} is not a generator bus in IEEE {req.case}; "
+                                     f"generator buses: {', '.join(map(str, sorted(gens)))}")
+        if kind == "load" and bus not in buses:
+            raise HTTPException(422, f"load bus {bus} is not in IEEE {req.case}")
     with lock:
         jid = secrets.token_hex(4)
         jobs[jid] = {"id": jid, "status": "queued", "request": req.model_dump(), "argv": req.argv(),
