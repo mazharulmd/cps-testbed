@@ -82,9 +82,15 @@ docker/          Dockerfile (multi-stage), Dockerfile.dev, build_petsc.sh, start
 
 ## Run it locally (Docker)
 
-The whole testbed (HELICS, GridPACK, NS-3, the federates and the Node-RED dashboard) is published as a public container image:
+The whole testbed (HELICS, GridPACK, NS-3, the federates, the web app and the Node-RED dashboard) is published as a public container image:
 
 **📦 [`ghcr.io/mazharulmd/cps-testbed`](https://github.com/mazharulmd/cps-testbed/pkgs/container/cps-testbed)**
+
+| Tag | Contents | Use it for |
+|---|---|---|
+| `latest` | The current full testbed: live GridPACK, IEEE 14–300 bus cases, multi-PMU NS-3 network, control center, web app (8080) and Node-RED dashboard (1880) | Running the testbed |
+| `v2` | The same image as `latest` at the time of the multi-PMU release, under a fixed name | Reproducing published results; it will not change when `latest` is updated |
+| `base` | The earlier prebuilt image with the compiled HELICS, GridPACK and NS-3 and the legacy single-PMU demo only | Building from this repo (`docker/Dockerfile` layers onto it); not meant to be run directly |
 
 The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this repo; they are inside the image.
 
@@ -92,13 +98,15 @@ The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this r
 
 - **Docker**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) on Windows 10/11 (WSL 2 backend) or macOS, or Docker Engine on Linux.
 - **x86-64 (amd64) machine.** On Apple Silicon Macs, add `--platform linux/amd64` to `docker pull` and `docker run`; it runs under emulation and is slower.
-- About **2 GB of download** and **3 GB of free disk space**.
+- About **2 GB of download** and **5 GB of free disk space**.
 
 ### 1. Pull the image
 
 ```bash
 docker pull ghcr.io/mazharulmd/cps-testbed:latest
 ```
+
+To pin the exact version used for the results in this README and the technical report, use `ghcr.io/mazharulmd/cps-testbed:v2` in place of `:latest` in all commands below.
 
 ### 2. Start the container
 
@@ -167,7 +175,13 @@ docker pull ghcr.io/mazharulmd/cps-testbed:latest
 # ...then run the `docker run` command from step 2 again
 ```
 
-Results are written inside the container under `/home/ubuntu/cps-testbed/results/`. To copy them to your computer:
+Web app experiments are written inside the container under `/home/ubuntu/cps-testbed/results/runs/` (legacy dashboard runs under `/home/ubuntu/cps-testbed/results/`). To keep them when the container is removed or updated, add a volume to the `docker run` command in step 2:
+
+```bash
+-v "$PWD/cps-results:/home/ubuntu/cps-testbed/results/runs"
+```
+
+Or copy them to your computer:
 
 ```bash
 docker cp cps-testbed:/home/ubuntu/cps-testbed/results ./results
@@ -175,20 +189,22 @@ docker cp cps-testbed:/home/ubuntu/cps-testbed/results ./results
 
 ### Troubleshooting
 
-- **Port 1880 already in use:** map a different local port, e.g. `-p 18800:1880`, then open http://localhost:18800/dashboard/console.
+- **Port 8080 or 1880 already in use:** map a different local port, e.g. `-p 18080:8080` or `-p 18800:1880`, then open http://localhost:18080 or http://localhost:18800/dashboard/console.
 - **`docker: command not found` / cannot connect to the Docker daemon:** start Docker Desktop, or on Linux run `sudo systemctl start docker`.
 - **Name already in use (`cps-testbed`):** remove the old container first with `docker rm -f cps-testbed`.
 
 ### Build from this repo (optional)
 
-To try changes to the scripts, federates or flows in this repo, layer them onto the published image:
+To try changes to the code in this repo, build your own image. `docker/Dockerfile` starts from `ghcr.io/mazharulmd/cps-testbed:base`, compiles PETSc for GridPACK and the NS-3 federate, and adds the cases, federates and web app. The first build takes about 25 minutes (mostly PETSc); later builds reuse the cached layers.
 
 ```bash
 git clone https://github.com/mazharulmd/cps-testbed.git
 cd cps-testbed
 docker build -f docker/Dockerfile -t cps-testbed:local .
-docker run -d --name cps-testbed -p 1880:1880 cps-testbed:local
+docker run -d --name cps-testbed -p 1880:1880 -p 8080:8080 -e CPS_WEB_PASSWORD="your-password" cps-testbed:local
 ```
+
+For development with compilers available (for example to rebuild NS-3 interactively), build `docker/Dockerfile.dev`, which also starts from `:base`.
 
 ### Command line
 
@@ -209,7 +225,7 @@ docker exec cps-testbed /home/ubuntu/cps-testbed/run_scenario_docker.sh \
 
 After a command-line run, click **Load Latest Scenario** in the Node-RED editor to show it on the dashboard.
 
-Changes to `helicstest.cc` require rebuilding NS-3 (`./ns3 build`). The image contains the NS-3 source and compiled binaries but no compiler, so rebuild in an environment that has the NS-3 build toolchain.
+Changes to `helicstest.cc` are compiled by `docker/Dockerfile` when you build the image. The runtime image itself contains the NS-3 source and compiled binaries but no compiler; to rebuild NS-3 by hand use the development image (`docker/Dockerfile.dev`).
 
 ## Licensing
 
