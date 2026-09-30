@@ -28,28 +28,117 @@ node-red/        Dashboard flows, settings.js, package.json
 docker/          Dockerfile that layers this repo onto the prebuilt base image
 ```
 
-## Running
+## Run it locally (Docker)
 
-The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this repo. They ship in the public image `ghcr.io/mazharulmd/cps-testbed`.
+The whole testbed (HELICS, GridPACK, NS-3, the federates and the Node-RED dashboard) is published as a public container image:
+
+**📦 [`ghcr.io/mazharulmd/cps-testbed`](https://github.com/mazharulmd/cps-testbed/pkgs/container/cps-testbed)**
+
+The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this repo; they are inside the image.
+
+### Requirements
+
+- **Docker**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) on Windows 10/11 (WSL 2 backend) or macOS, or Docker Engine on Linux.
+- **x86-64 (amd64) machine.** On Apple Silicon Macs, add `--platform linux/amd64` to `docker pull` and `docker run`; it runs under emulation and is slower.
+- About **2 GB of download** and **3 GB of free disk space**.
+
+### 1. Pull the image
 
 ```bash
 docker pull ghcr.io/mazharulmd/cps-testbed:latest
+```
 
-# optional: rebuild with the files from this repo
-docker build -f docker/Dockerfile -t cps-testbed:local .
+### 2. Start the container
 
-# set a dashboard login (bcrypt hash of your password)
+**Quick start, no login.** Use this only on your own computer:
+
+```bash
+docker run -d --name cps-testbed -p 1880:1880 ghcr.io/mazharulmd/cps-testbed:latest
+```
+
+**With a login (recommended).** Create a bcrypt hash of your chosen password, then pass it in as `NODERED_ADMIN_HASH`. The username is `admin`, or set `NODERED_ADMIN_USER`.
+
+Linux / macOS (bash):
+
+```bash
 HASH=$(docker run --rm ghcr.io/mazharulmd/cps-testbed:latest node -e 'console.log(require("/usr/lib/node_modules/node-red/node_modules/bcryptjs").hashSync(process.argv[1], 8))' 'your-password')
 
 docker run -d --name cps-testbed -p 1880:1880 -e NODERED_ADMIN_HASH="$HASH" ghcr.io/mazharulmd/cps-testbed:latest
 ```
 
-- Dashboard: http://localhost:1880/dashboard/console
-- Node-RED editor: http://localhost:1880
+Windows (PowerShell):
 
-If `NODERED_ADMIN_HASH` is not set, Node-RED runs **without a login**. Don't expose it to the internet that way.
+```powershell
+$HASH = docker run --rm ghcr.io/mazharulmd/cps-testbed:latest node -e "console.log(require('/usr/lib/node_modules/node-red/node_modules/bcryptjs').hashSync(process.argv[1], 8))" "your-password"
+
+docker run -d --name cps-testbed -p 1880:1880 -e NODERED_ADMIN_HASH=$HASH ghcr.io/mazharulmd/cps-testbed:latest
+```
+
+> ⚠️ Without `NODERED_ADMIN_HASH`, anyone who can reach port 1880 can edit flows and run commands in the container. Never expose it to the internet that way.
+
+### 3. Open the dashboard
+
+Node-RED takes a few seconds to start. Then open:
+
+- **Operator dashboard:** http://localhost:1880/dashboard/console
+- **Node-RED editor:** http://localhost:1880
+
+### 4. Run a scenario
+
+In the **Run Scenario** panel at the top of the dashboard:
+
+1. Set a **scenario name**, **latency (ms)**, **loss (0–1)**, and optionally a bus to **drop** or the **FDI attack** switch.
+2. Click **Run scenario**. A run takes about 10–15 seconds.
+3. When it finishes, the voltage chart, delay chart, delivery gauge, metrics and per-bus table update automatically.
+
+Try, for example:
+
+| Scenario | Settings | What you should see |
+|---|---|---|
+| Baseline | latency 20, loss 0.2 | 13/14 delivered, bus 8 over-voltage detected, control command sent back to GridPACK |
+| Congested network | latency 500 | Same detection, much higher end-to-end delay |
+| False-data injection | latency 20, FDI attack on | Bus 8 violation hidden from the PDC, reported as a **missed violation** |
+| Lost measurement | latency 20, drop bus 8 | 12/14 delivered; bus 8 never reaches the PDC, so its over-voltage goes undetected (0 violations seen) |
+
+### 5. Stop, restart, update
+
+```bash
+docker stop cps-testbed        # stop
+docker start cps-testbed       # start again (keeps results)
+docker logs -f cps-testbed     # view Node-RED logs
+
+# update to the newest image
+docker rm -f cps-testbed
+docker pull ghcr.io/mazharulmd/cps-testbed:latest
+# ...then run the `docker run` command from step 2 again
+```
+
+Results are written inside the container under `/home/ubuntu/cps-testbed/results/`. To copy them to your computer:
+
+```bash
+docker cp cps-testbed:/home/ubuntu/cps-testbed/results ./results
+```
+
+### Troubleshooting
+
+- **Port 1880 already in use:** map a different local port, e.g. `-p 18800:1880`, then open http://localhost:18800/dashboard/console.
+- **`docker: command not found` / cannot connect to the Docker daemon:** start Docker Desktop, or on Linux run `sudo systemctl start docker`.
+- **Name already in use (`cps-testbed`):** remove the old container first with `docker rm -f cps-testbed`.
+
+### Build from this repo (optional)
+
+To try changes to the scripts, federates or flows in this repo, layer them onto the published image:
+
+```bash
+git clone https://github.com/mazharulmd/cps-testbed.git
+cd cps-testbed
+docker build -f docker/Dockerfile -t cps-testbed:local .
+docker run -d --name cps-testbed -p 1880:1880 cps-testbed:local
+```
 
 ### Command line
+
+Scenarios can also be run without the dashboard:
 
 ```bash
 docker exec cps-testbed /home/ubuntu/cps-testbed/run_scenario_docker.sh \
@@ -64,7 +153,9 @@ docker exec cps-testbed /home/ubuntu/cps-testbed/run_scenario_docker.sh \
 | `--droppmu=N` | Drop bus N's measurement |
 | `--name` | Scenario name used for the result files |
 
-Changes to `helicstest.cc` require rebuilding NS-3 (`./ns3 build`) in an environment that has the NS-3 build toolchain; the runtime image contains only the compiled binary.
+After a command-line run, click **Load Latest Scenario** in the Node-RED editor to show it on the dashboard.
+
+Changes to `helicstest.cc` require rebuilding NS-3 (`./ns3 build`). The image contains the NS-3 source and compiled binaries but no compiler, so rebuild in an environment that has the NS-3 build toolchain.
 
 ## Licensing
 
