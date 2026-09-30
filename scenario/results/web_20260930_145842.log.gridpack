@@ -1,0 +1,16 @@
+[GRIDPACK] federation joined, publishing voltages + listening for control commands
+[GRIDPACK] t=1.0s  bus 1  V=1.0600 pu  angle=0.00 deg
+[GRIDPACK] t=1.0s  bus 2  V=1.0450 pu  angle=-4.98 deg
+[GRIDPACK] t=2.0s  bus 3  V=1.0100 pu  angle=-12.73 deg
+[GRIDPACK] t=3.0s  bus 4  V=1.0177 pu  angle=-10.31 deg
+[GRIDPACK] t=4.0s  bus 5  V=1.0195 pu  angle=-8.77 deg
+[GRIDPACK] t=5.0s  bus 6  V=1.0700 pu  angle=-14.22 deg
+[GRIDPACK] t=6.0s  bus 7  V=1.0615 pu  angle=-13.36 deg
+[GRIDPACK] t=7.0s  bus 8  V=1.0900 pu  angle=-13.36 deg
+[GRIDPACK] t=8.0s  bus 9  V=1.0559 pu  angle=-14.94 deg
+[GRIDPACK] t=9.0s  bus 10  V=1.0510 pu  angle=-15.10 deg
+[GRIDPACK] t=10.0s  bus 11  V=1.0569 pu  angle=-14.79 deg
+[GRIDPACK] t=11.0s  bus 12  V=1.0552 pu  angle=-15.08 deg
+[GRIDPACK] t=12.0s  bus 13  V=1.0504 pu  angle=-15.16 deg
+[GRIDPACK] t=13.0s  bus 14  V=1.0355 pu  angle=-16.03 deg
+[GRIDPACK] finalized

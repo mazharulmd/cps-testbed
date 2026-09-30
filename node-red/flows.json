@@ -1,0 +1,791 @@
+[
+    {
+        "id": "b1091fdc876e5a4e",
+        "type": "tab",
+        "label": "CPS Testbed Console",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "6df6ef18cc2df6cb",
+        "type": "ui-base",
+        "name": "My Dashboard",
+        "path": "/dashboard",
+        "appIcon": "",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "headerContent": "page",
+        "navigationStyle": "default",
+        "titleBarStyle": "default",
+        "showReconnectNotification": true,
+        "notificationDisplayTime": 1,
+        "showDisconnectNotification": true,
+        "allowInstall": false
+    },
+    {
+        "id": "c6aa76fb390a9bd1",
+        "type": "ui-theme",
+        "name": "Default Theme",
+        "colors": {
+            "surface": "#ffffff",
+            "primary": "#0094CE",
+            "bgPage": "#eeeeee",
+            "groupBg": "#ffffff",
+            "groupOutline": "#cccccc"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "4px",
+            "widgetGap": "12px"
+        }
+    },
+    {
+        "id": "e316922ddf2f0666",
+        "type": "ui-page",
+        "name": "Page 1",
+        "ui": "6df6ef18cc2df6cb",
+        "path": "/page1",
+        "icon": "home",
+        "layout": "grid",
+        "theme": "c6aa76fb390a9bd1",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": 0,
+                "cols": 3
+            },
+            {
+                "name": "Tablet",
+                "px": 576,
+                "cols": 6
+            },
+            {
+                "name": "Small Desktop",
+                "px": 768,
+                "cols": 9
+            },
+            {
+                "name": "Desktop",
+                "px": 1024,
+                "cols": 12
+            }
+        ],
+        "order": 1,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "ui_theme",
+        "type": "ui-theme",
+        "name": "CPS Theme",
+        "colors": {
+            "surface": "#ffffff",
+            "primary": "#0d47a1",
+            "bgPage": "#eceff1",
+            "groupBg": "#ffffff",
+            "groupOutline": "#cfd8dc"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "6px",
+            "widgetGap": "12px"
+        }
+    },
+    {
+        "id": "ui_page",
+        "type": "ui-page",
+        "name": "CPS Operator Console",
+        "ui": "6df6ef18cc2df6cb",
+        "path": "/console",
+        "icon": "home",
+        "layout": "grid",
+        "theme": "ui_theme",
+        "order": 1,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "grp_header",
+        "type": "ui-group",
+        "name": "Scenario Status",
+        "page": "ui_page",
+        "width": "12",
+        "height": "1",
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "grp_charts",
+        "type": "ui-group",
+        "name": "Grid Voltage & Network Delay",
+        "page": "ui_page",
+        "width": "12",
+        "height": "1",
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "grp_metrics",
+        "type": "ui-group",
+        "name": "Network Performance",
+        "page": "ui_page",
+        "width": "6",
+        "height": "1",
+        "order": 4,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "grp_table",
+        "type": "ui-group",
+        "name": "Per-Bus Measurement Table",
+        "page": "ui_page",
+        "width": "6",
+        "height": "1",
+        "order": 5,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "30ae9a8f193c2055",
+        "type": "inject",
+        "z": "b1091fdc876e5a4e",
+        "name": "Load Latest Scenario",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 140,
+        "y": 320,
+        "wires": [
+            [
+                "30ae9a8f193c2055_link"
+            ]
+        ]
+    },
+    {
+        "id": "56a83253ec73e3d4",
+        "type": "file in",
+        "z": "b1091fdc876e5a4e",
+        "name": "read last_compare.csv",
+        "filename": "/home/ubuntu/cps-testbed/results/last_compare.csv",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 400,
+        "y": 260,
+        "wires": [
+            [
+                "422539c5447e636e"
+            ]
+        ]
+    },
+    {
+        "id": "422539c5447e636e",
+        "type": "csv",
+        "z": "b1091fdc876e5a4e",
+        "name": "",
+        "sep": ",",
+        "hdrin": true,
+        "hdrout": "none",
+        "multi": "mult",
+        "ret": "\\n",
+        "temp": "",
+        "skip": "0",
+        "strings": true,
+        "include_empty_strings": false,
+        "include_null_values": false,
+        "x": 610,
+        "y": 260,
+        "wires": [
+            [
+                "d0dc46b6b654992a",
+                "43f7199fc04e2d7f",
+                "9bab0be9e99cce9e",
+                "96fbfd24f2fdcadb"
+            ]
+        ]
+    },
+    {
+        "id": "d0dc46b6b654992a",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "voltage series",
+        "func": "const rows = msg.payload;\nfor (const r of rows) {\n  const bus = Number(r.bus);\n  node.send({ topic: 'True (GridPACK)', payload: Number(r.sent_v), x: bus, y: Number(r.sent_v) });\n  if (r.delivered == 1 && r.recv_v !== '') {\n    node.send({ topic: 'Delivered (NS-3)', payload: Number(r.recv_v), x: bus, y: Number(r.recv_v) });\n  }\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 840,
+        "y": 120,
+        "wires": [
+            [
+                "3c895ee64950ada7"
+            ]
+        ]
+    },
+    {
+        "id": "43f7199fc04e2d7f",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "delay series",
+        "func": "const rows = msg.payload;\nfor (const r of rows) {\n    const bus = Number(r.bus);\n    if (r.delivered == 1 && r.delay_ms !== '' && r.delay_ms != null) {\n        // delivered: Normal or Problem bus\n        const isProblem = (Number(r.sent_v) > 1.08) || (r.attacked == 1);\n        node.send({\n            topic: isProblem ? 'Problem bus' : 'Normal',\n            payload: Number(r.delay_ms),\n            x: bus,\n            y: Number(r.delay_ms)\n        });\n    } else {\n        // lost: show a small marker so the gap is visible and labeled\n        node.send({\n            topic: 'Lost',\n            payload: 0,\n            x: bus,\n            y: 1   // small fixed height so it's visible but clearly not a real delay\n        });\n    }\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 830,
+        "y": 200,
+        "wires": [
+            [
+                "28bd03089bd8c0cb"
+            ]
+        ]
+    },
+    {
+        "id": "9bab0be9e99cce9e",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "build table",
+        "func": "const rows = msg.payload;\nlet html = `<div style=\"display:flex;justify-content:center;width:100%\"><table style=\"border-collapse:collapse;font-size:14px;margin:0 auto\">\n<tr style=\"background:#0d47a1;color:#fff\">\n<th style=\"padding:6px;border:1px solid #ccc\">Bus</th>\n<th style=\"padding:6px;border:1px solid #ccc\">True V</th>\n<th style=\"padding:6px;border:1px solid #ccc\">Recv V</th>\n<th style=\"padding:6px;border:1px solid #ccc\">Delay ms</th>\n<th style=\"padding:6px;border:1px solid #ccc\">Status</th></tr>`;\nfor (const r of rows) {\n  const lost = (r.delivered != 1);\n  const atk = (r.attacked == 1);\n  let bg = '', status = 'OK', scolor = '#2e7d32';\n  if (lost) { bg = 'background:#ffcdd2'; status = 'LOST'; scolor = '#c62828'; }\n  else if (atk) { bg = 'background:#fff3cd'; status = '⚠ TAMPERED'; scolor = '#e65100'; }\n  html += `<tr style=\"${bg}\">\n<td style=\"padding:5px;border:1px solid #ccc;text-align:center\">${r.bus}</td>\n<td style=\"padding:5px;border:1px solid #ccc;text-align:center\">${Number(r.sent_v).toFixed(4)}</td>\n<td style=\"padding:5px;border:1px solid #ccc;text-align:center\">${lost ? '—' : Number(r.recv_v).toFixed(4)}</td>\n<td style=\"padding:5px;border:1px solid #ccc;text-align:center\">${lost ? '—' : Number(r.delay_ms).toFixed(2)}</td>\n<td style=\"padding:5px;border:1px solid #ccc;text-align:center;font-weight:bold;color:${scolor}\">${status}</td></tr>`;\n}\nhtml += `</table></div>`;\nmsg.payload = html;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 830,
+        "y": 260,
+        "wires": [
+            [
+                "ece9c0b6cd5c3b47"
+            ]
+        ]
+    },
+    {
+        "id": "9615debd04964375",
+        "type": "file in",
+        "z": "b1091fdc876e5a4e",
+        "name": "read last_summary.json",
+        "filename": "/home/ubuntu/cps-testbed/results/last_summary.json",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 410,
+        "y": 380,
+        "wires": [
+            [
+                "280f37eb3d43bccc"
+            ]
+        ]
+    },
+    {
+        "id": "280f37eb3d43bccc",
+        "type": "json",
+        "z": "b1091fdc876e5a4e",
+        "name": "",
+        "property": "payload",
+        "action": "obj",
+        "pretty": false,
+        "x": 610,
+        "y": 380,
+        "wires": [
+            [
+                "47f3d72c8437e7d6",
+                "a377f157fe27140d",
+                "ad4f66814f984a29"
+            ]
+        ]
+    },
+    {
+        "id": "f0dca9d92b1ba51d",
+        "type": "ui-text",
+        "z": "b1091fdc876e5a4e",
+        "group": "grp_header",
+        "order": 1,
+        "width": "11",
+        "height": "1",
+        "name": "header",
+        "label": "",
+        "format": "{{msg.payload}}",
+        "layout": "row-left",
+        "style": false,
+        "font": "",
+        "fontSize": 14,
+        "color": "#0d47a1",
+        "wrapText": false,
+        "className": "",
+        "value": "payload",
+        "valueType": "msg",
+        "x": 1040,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "28bd03089bd8c0cb",
+        "type": "ui-chart",
+        "z": "b1091fdc876e5a4e",
+        "group": "grp_charts",
+        "name": "Delay",
+        "label": "End-to-End Network Delay per Bus",
+        "order": 2,
+        "chartType": "bar",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisLabel": "Bus Number",
+        "xAxisProperty": "x",
+        "xAxisPropertyType": "msg",
+        "xAxisType": "category",
+        "xAxisFormat": "",
+        "xAxisFormatType": "auto",
+        "xmin": "",
+        "xmax": "",
+        "yAxisLabel": "Delay (ms)",
+        "yAxisProperty": "y",
+        "yAxisPropertyType": "msg",
+        "ymin": "0",
+        "ymax": "",
+        "bins": "",
+        "action": "append",
+        "stackSeries": false,
+        "pointShape": "circle",
+        "pointRadius": 4,
+        "showLegend": true,
+        "removeOlder": "1",
+        "removeOlderUnit": "3600",
+        "removeOlderPoints": "",
+        "colors": [
+            "#5b5bd2",
+            "#fa0000",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "textColor": [
+            "#666666"
+        ],
+        "textColorDefault": true,
+        "gridColor": [
+            "#e5e5e5"
+        ],
+        "gridColorDefault": true,
+        "width": "6",
+        "height": "6",
+        "className": "",
+        "interpolation": "linear",
+        "x": 1030,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b6d27a642ab57b38",
+        "type": "ui-text",
+        "z": "b1091fdc876e5a4e",
+        "group": "grp_metrics",
+        "order": 1,
+        "width": "6",
+        "height": "4",
+        "name": "metrics",
+        "label": "",
+        "format": "<pre style=\"font-size:15px;line-height:1.6;margin:0\">{{msg.payload}}</pre>",
+        "layout": "row-center",
+        "style": false,
+        "font": "",
+        "fontSize": 15,
+        "color": "#263238",
+        "wrapText": false,
+        "className": "",
+        "value": "payload",
+        "valueType": "msg",
+        "x": 1040,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "47f3d72c8437e7d6",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "delivery gauge",
+        "func": "const s = msg.payload;\nconst rate = (s.delivered / s.total_buses) * 100;\nmsg.payload = Math.round(rate * 10) / 10;   \nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 840,
+        "y": 540,
+        "wires": [
+            [
+                "f211f86170e2e773"
+            ]
+        ]
+    },
+    {
+        "id": "f211f86170e2e773",
+        "type": "ui-gauge",
+        "z": "b1091fdc876e5a4e",
+        "name": "",
+        "group": "grp_metrics",
+        "order": 0,
+        "value": "payload",
+        "valueType": "msg",
+        "width": "0",
+        "height": "0",
+        "gtype": "gauge-half",
+        "gstyle": "needle",
+        "title": "Delivery Rate",
+        "alwaysShowTitle": false,
+        "floatingTitlePosition": "top-left",
+        "units": "%",
+        "icon": "",
+        "prefix": "",
+        "suffix": "",
+        "segments": [
+            {
+                "from": "0",
+                "color": "#ff0000",
+                "text": "",
+                "textType": "label"
+            },
+            {
+                "from": "70",
+                "color": "#ffc800",
+                "text": "",
+                "textType": "label"
+            },
+            {
+                "from": "85",
+                "color": "#58ee71",
+                "text": "",
+                "textType": "label"
+            }
+        ],
+        "min": 0,
+        "max": "100",
+        "sizeThickness": 16,
+        "sizeGap": 4,
+        "sizeKeyThickness": 8,
+        "styleRounded": true,
+        "styleGlow": false,
+        "className": "",
+        "x": 1060,
+        "y": 540,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ad4f66814f984a29",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "metrics text",
+        "func": "const s = msg.payload;\nconst attackLine = (s.attack && s.attack !== 'none')\n    ? `⚠ ATTACK: ${s.attack} — MISSED violations: ${s.missed_violations}`\n    : `Security: no attack detected`;\nconst line1 = `Delivered: ${s.delivered}/${s.total_buses} &nbsp; | &nbsp; Lost: ${s.lost} (${Number(s.loss_actual_pct).toFixed(1)}%) &nbsp; | &nbsp; Violations seen: ${s.violations_seen_by_pdc} &nbsp; | &nbsp; Avg delay: ${Number(s.avg_delay_ms).toFixed(2)} ms`;\nmsg.payload = `<div style=\"font-size:14px;line-height:1.6\">${line1}<br><span style=\"color:#c62828;font-weight:bold\">${attackLine}</span></div>`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 830,
+        "y": 460,
+        "wires": [
+            [
+                "b6d27a642ab57b38"
+            ]
+        ]
+    },
+    {
+        "id": "a377f157fe27140d",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "header text",
+        "func": "const s = msg.payload;\nconst sec = (s.attack && s.attack !== 'none') ? '🔴 UNDER ATTACK' : '🟢 SECURE';\nmsg.payload = `Scenario: ${s.scenario}  |  Latency: ${s.latency_ms} ms  |  ${sec}  |  HELICS: ${s.helics_status}`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 830,
+        "y": 380,
+        "wires": [
+            [
+                "f0dca9d92b1ba51d"
+            ]
+        ]
+    },
+    {
+        "id": "ece9c0b6cd5c3b47",
+        "type": "ui-text",
+        "z": "b1091fdc876e5a4e",
+        "group": "grp_table",
+        "order": 0,
+        "width": "0",
+        "height": "0",
+        "name": "Table",
+        "label": "",
+        "format": "{{msg.payload}}",
+        "layout": "row-center",
+        "style": false,
+        "font": "",
+        "fontSize": 16,
+        "color": "#717171",
+        "wrapText": false,
+        "className": "",
+        "value": "payload",
+        "valueType": "msg",
+        "x": 1030,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "96fbfd24f2fdcadb",
+        "type": "ui-template",
+        "z": "b1091fdc876e5a4e",
+        "group": "grp_charts",
+        "page": "",
+        "ui": "",
+        "name": "",
+        "order": 0,
+        "width": "6",
+        "height": "6",
+        "head": "",
+        "format": "<template>\n  <div ref=\"chart\" style=\"width:100%;height:340px\"></div>\n</template>\n\n<script>\nexport default {\n  data() { return { chart: null }; },\n  mounted() {\n    const load = () => {\n      if (!window.echarts) {\n        const s = document.createElement('script');\n        s.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';\n        s.onload = () => this.init();\n        document.head.appendChild(s);\n      } else { this.init(); }\n    };\n    load();\n  },\n  methods: {\n    init() {\n      this.chart = window.echarts.init(this.$refs.chart);\n      this.render(this.lastRows || []);\n    },\n    render(rows) {\n      if (!this.chart || !rows.length) return;\n      const buses = rows.map(r => Number(r.bus));\n      const trueV = rows.map(r => Number(r.sent_v));\n      const recvV = rows.map(r => (r.delivered == 1 && r.recv_v !== '') ? Number(r.recv_v) : null);\n      this.chart.setOption({\n        tooltip: { trigger: 'axis' },\n        legend: { data: ['True (GridPACK)', 'Delivered (NS-3)'], top: 0 },\n        grid: { left: 50, right: 20, top: 40, bottom: 40 },\n        xAxis: { type: 'category', data: buses, name: 'Bus Number', nameLocation: 'middle', nameGap: 25 },\n        yAxis: { type: 'value', name: 'Voltage (pu)', min: 1.0, max: 1.1 },\n        series: [\n          {\n            name: 'True (GridPACK)', type: 'line', data: trueV,\n            color: '#1565C0', symbol: 'circle', symbolSize: 7,\n            label: { show: true, position: 'top', formatter: (p) => 'B' + buses[p.dataIndex], fontSize: 10, color: '#1565C0' }\n          },\n          {\n            name: 'Delivered (NS-3)', type: 'line', data: recvV,\n            color: '#E53935', symbol: 'rect', symbolSize: 7, step: 'middle', connectNulls: false\n          }\n        ]\n      });\n    }\n  },\n  watch: {\n    msg: function(m) {\n      if (m && m.payload && Array.isArray(m.payload)) {\n        this.lastRows = m.payload;\n        this.render(m.payload);\n      }\n    }\n  }\n}\n</script>",
+        "storeOutMessages": true,
+        "passthru": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 1040,
+        "y": 320,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "3c895ee64950ada7",
+        "type": "debug",
+        "z": "b1091fdc876e5a4e",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1040,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "grp_run",
+        "type": "ui-group",
+        "name": "Run Scenario",
+        "page": "ui_page",
+        "width": "12",
+        "height": "1",
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "run_panel",
+        "type": "ui-template",
+        "z": "b1091fdc876e5a4e",
+        "group": "grp_run",
+        "page": "",
+        "ui": "",
+        "name": "run panel",
+        "order": 1,
+        "width": "12",
+        "height": "1",
+        "head": "",
+        "format": "<template>\n  <div style=\"display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end\">\n    <v-text-field v-model=\"name\" label=\"Scenario name\" density=\"compact\" hide-details style=\"max-width:170px\"></v-text-field>\n    <v-text-field v-model.number=\"latency\" type=\"number\" label=\"Latency (ms)\" density=\"compact\" hide-details style=\"max-width:120px\"></v-text-field>\n    <v-text-field v-model.number=\"loss\" type=\"number\" step=\"0.05\" label=\"Loss (0-1)\" density=\"compact\" hide-details style=\"max-width:110px\"></v-text-field>\n    <v-text-field v-model.number=\"droppmu\" type=\"number\" label=\"Drop bus (0=none)\" density=\"compact\" hide-details style=\"max-width:140px\"></v-text-field>\n    <v-switch v-model=\"attack\" label=\"FDI attack\" color=\"red\" density=\"compact\" hide-details></v-switch>\n    <v-btn color=\"primary\" :loading=\"running\" :disabled=\"running\" @click=\"run\">Run scenario</v-btn>\n  </div>\n  <div style=\"margin-top:8px;font-size:14px\" :style=\"{color: error ? '#c62828' : '#0d47a1'}\">{{ status }}</div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { name: 'web', latency: 20, loss: 0.2, droppmu: 0, attack: false,\n             running: false, error: false, status: 'Ready.' };\n  },\n  methods: {\n    run() {\n      this.send({ payload: { name: this.name, latency: this.latency, loss: this.loss,\n                             droppmu: this.droppmu, attack: this.attack } });\n    }\n  },\n  watch: {\n    msg(m) {\n      if (!m || !m.status) return;\n      this.running = !!m.status.running;\n      this.error = !!m.status.error;\n      this.status = m.status.text;\n    }\n  }\n}\n</script>",
+        "storeOutMessages": false,
+        "passthru": false,
+        "resendOnRefresh": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 150,
+        "y": 480,
+        "wires": [
+            [
+                "run_build"
+            ]
+        ]
+    },
+    {
+        "id": "run_build",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "build command",
+        "func": "// validate dashboard input and build the run_scenario_docker.sh arguments\nif (flow.get('running')) {\n    return [null, { status: { running: true, text: 'A scenario is already running…' } }];\n}\nconst p = msg.payload || {};\nconst name = String(p.name || 'web').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'web';\nconst latency = Number(p.latency), loss = Number(p.loss), drop = Math.trunc(Number(p.droppmu) || 0);\nif (!(latency >= 0 && latency <= 5000)) return [null, { status: { error: true, text: 'Latency must be 0–5000 ms.' } }];\nif (!(loss >= 0 && loss <= 1)) return [null, { status: { error: true, text: 'Loss must be between 0 and 1.' } }];\nif (!(drop >= 0 && drop <= 14)) return [null, { status: { error: true, text: 'Drop bus must be 0–14.' } }];\n\nlet args = `--latency=${latency} --loss=${loss} --name=${name}`;\nif (p.attack) args += ' --attack=1';\nif (drop > 0) args += ` --droppmu=${drop}`;\n\nflow.set('running', true);\nreturn [{ payload: args },\n        { status: { running: true, text: `Running \"${name}\" (latency ${latency} ms, loss ${loss}${p.attack ? ', FDI attack' : ''}${drop ? ', drop bus ' + drop : ''})…` } }];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "flow.set(\"running\", false);",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 480,
+        "wires": [
+            [
+                "run_exec"
+            ],
+            [
+                "run_panel"
+            ]
+        ]
+    },
+    {
+        "id": "run_exec",
+        "type": "exec",
+        "z": "b1091fdc876e5a4e",
+        "command": "/home/ubuntu/cps-testbed/run_scenario_docker.sh",
+        "addpay": "payload",
+        "append": "",
+        "useSpawn": "false",
+        "timer": "240",
+        "winHide": false,
+        "oldrc": false,
+        "name": "run_scenario_docker.sh",
+        "x": 590,
+        "y": 480,
+        "wires": [
+            [
+                "run_log"
+            ],
+            [
+                "run_log"
+            ],
+            [
+                "run_done"
+            ]
+        ]
+    },
+    {
+        "id": "run_done",
+        "type": "function",
+        "z": "b1091fdc876e5a4e",
+        "name": "finished",
+        "func": "// exec finished: release the lock, report, and reload the dashboard data\nflow.set('running', false);\nconst code = msg.payload && msg.payload.code;\nif (code === 0) {\n    return [{ status: { text: 'Scenario complete — dashboard updated at ' + new Date().toLocaleTimeString() + '.' } }, { payload: Date.now() }];\n}\nreturn [{ status: { error: true, text: 'Scenario failed (exit code ' + code + '). Check the Node-RED debug panel.' } }, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 800,
+        "y": 500,
+        "wires": [
+            [
+                "run_panel"
+            ],
+            [
+                "30ae9a8f193c2055_link"
+            ]
+        ]
+    },
+    {
+        "id": "run_log",
+        "type": "debug",
+        "z": "b1091fdc876e5a4e",
+        "name": "scenario output",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 820,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "30ae9a8f193c2055_link",
+        "type": "change",
+        "z": "b1091fdc876e5a4e",
+        "name": "reload results",
+        "rules": [],
+        "x": 360,
+        "y": 380,
+        "wires": [
+            [
+                "clear_delay",
+                "56a83253ec73e3d4",
+                "9615debd04964375"
+            ]
+        ]
+    },
+    {
+        "id": "clear_delay",
+        "type": "change",
+        "z": "b1091fdc876e5a4e",
+        "name": "clear chart",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[]",
+                "tot": "json"
+            }
+        ],
+        "x": 560,
+        "y": 380,
+        "wires": [
+            [
+                "28bd03089bd8c0cb"
+            ]
+        ]
+    }
+]

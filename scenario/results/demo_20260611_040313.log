@@ -1,0 +1,6 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+[CPS] testbed ready (scenario=demo, latency=20ms, loss=20%)
+[CONTROL] command -> GridPACK: REDUCE_VOLTAGE@bus8
+[CPS] SUMMARY: 13/14 delivered, 1 lost (7.14286%), avg delay 20.0354 ms, violations 1
+[CPS] wrote last_compare.csv + last_summary.json

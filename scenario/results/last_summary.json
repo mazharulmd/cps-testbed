@@ -1,0 +1,16 @@
+{
+  "scenario": "web",
+  "latency_ms": 20,
+  "attack": "FALSE DATA INJECTION (bus 8)",
+  "total_buses": 14,
+  "delivered": 12,
+  "lost": 2,
+  "loss_actual_pct": 14.2857,
+  "violations_seen_by_pdc": 0,
+  "missed_violations": 0,
+  "avg_delay_ms": 20.0357,
+  "max_delay_ms": 20.0368,
+  "helics_status": "connected (2 federates synced)",
+  "gridpack": "IEEE 14-bus power flow",
+  "ns3": "PMU->PDC UDP over point-to-point"
+}

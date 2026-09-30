@@ -1,0 +1,37 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+[CPS] federation joined; PMU->PDC ready (link latency 5 ms)
+[CPS] received 14 voltages from GridPACK; transporting over NS-3 network
+
+[PMU] t=1s  sent: bus=1;V=1.06
+[PDC] t=1.00503s  RECEIVED bus=1;V=1.06  | end-to-end delay = 5.0336 ms
+[PMU] t=2s  sent: bus=2;V=1.045
+[PDC] t=2.00503s  RECEIVED bus=2;V=1.045  | end-to-end delay = 5.0344 ms
+[PMU] t=3s  sent: bus=3;V=1.01
+[PDC] t=3.00503s  RECEIVED bus=3;V=1.01  | end-to-end delay = 5.0336 ms
+[PMU] t=4s  sent: bus=4;V=1.01767
+[PDC] t=4.00504s  RECEIVED bus=4;V=1.01767  | end-to-end delay = 5.036 ms
+[PMU] t=5s  sent: bus=5;V=1.01951
+[PDC] t=5.00504s  RECEIVED bus=5;V=1.01951  | end-to-end delay = 5.036 ms
+[PMU] t=6s  sent: bus=6;V=1.07
+[PDC] t=6.00503s  RECEIVED bus=6;V=1.07  | end-to-end delay = 5.0336 ms
+[PMU] t=7s  sent: bus=7;V=1.06152
+[PDC] t=7.00504s  RECEIVED bus=7;V=1.06152  | end-to-end delay = 5.036 ms
+[PMU] t=8s  sent: bus=8;V=1.09
+[PDC] t=8.00503s  RECEIVED bus=8;V=1.09  | end-to-end delay = 5.0336 ms
+[PMU] t=9s  sent: bus=9;V=1.05593
+[PDC] t=9.00504s  RECEIVED bus=9;V=1.05593  | end-to-end delay = 5.036 ms
+[PMU] t=10s  sent: bus=10;V=1.05099
+[PDC] t=10.005s  RECEIVED bus=10;V=1.05099  | end-to-end delay = 5.0368 ms
+[PMU] t=11s  sent: bus=11;V=1.05691
+[PDC] t=11.005s  RECEIVED bus=11;V=1.05691  | end-to-end delay = 5.0368 ms
+[PMU] t=12s  sent: bus=12;V=1.05519
+[PDC] t=12.005s  RECEIVED bus=12;V=1.05519  | end-to-end delay = 5.0368 ms
+[PMU] t=13s  sent: bus=13;V=1.05038
+[PDC] t=13.005s  RECEIVED bus=13;V=1.05038  | end-to-end delay = 5.0368 ms
+[PMU] t=14s  sent: bus=14;V=1.03553
+[PDC] t=14.005s  RECEIVED bus=14;V=1.03553  | end-to-end delay = 5.0368 ms
+
+[CPS] SUMMARY: 14/14 measurements delivered to PDC over a 5 ms network
+[PDC] total bytes received: (see per-packet log above)
+[CPS] finalized
