@@ -30,18 +30,18 @@ docker/          Dockerfile that layers this repo onto the prebuilt base image
 
 ## Running
 
-The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this repo. They ship in the prebuilt Docker image `cps-testbed:dashboard`, exported as `cps-testbed-dashboard.tar.gz`.
+The compiled HELICS, GridPACK and NS-3 builds (~1.2 GB) are not stored in this repo. They ship in the public image `ghcr.io/mazharulmd/cps-testbed`.
 
 ```bash
-docker load < cps-testbed-dashboard.tar.gz
+docker pull ghcr.io/mazharulmd/cps-testbed:latest
 
 # optional: rebuild with the files from this repo
 docker build -f docker/Dockerfile -t cps-testbed:local .
 
 # set a dashboard login (bcrypt hash of your password)
-HASH=$(docker run --rm cps-testbed:local node -e 'console.log(require("/usr/lib/node_modules/node-red/node_modules/bcryptjs").hashSync(process.argv[1], 8))' 'your-password')
+HASH=$(docker run --rm ghcr.io/mazharulmd/cps-testbed:latest node -e 'console.log(require("/usr/lib/node_modules/node-red/node_modules/bcryptjs").hashSync(process.argv[1], 8))' 'your-password')
 
-docker run -d --name cps-testbed -p 1880:1880 -e NODERED_ADMIN_HASH="$HASH" cps-testbed:local
+docker run -d --name cps-testbed -p 1880:1880 -e NODERED_ADMIN_HASH="$HASH" ghcr.io/mazharulmd/cps-testbed:latest
 ```
 
 - Dashboard: http://localhost:1880/dashboard/console
@@ -65,3 +65,7 @@ docker exec cps-testbed /home/ubuntu/cps-testbed/run_scenario_docker.sh \
 | `--name` | Scenario name used for the result files |
 
 Changes to `helicstest.cc` require rebuilding NS-3 (`./ns3 build`) in an environment that has the NS-3 build toolchain; the runtime image contains only the compiled binary.
+
+## Licensing
+
+The Docker image bundles third-party software under its own licenses, including NS-3 (GPLv2, source included in the image under `/home/ubuntu/software/ns-3`), HELICS (BSD-3-Clause), GridPACK (BSD-style) and Node-RED (Apache-2.0).

@@ -1,11 +1,10 @@
 # Layers this repo's scripts, flows and federates onto the prebuilt CPS testbed image.
 # The base image carries the compiled HELICS, GridPACK and NS-3 builds (~1.2 GB),
-# which are too large for the repo. Load it first, e.g.:
-#   docker load < cps-testbed-dashboard.tar.gz
+# which are too large for the repo; it is pulled from GitHub Container Registry.
 #
 # Build (from the repo root):
 #   docker build -f docker/Dockerfile -t cps-testbed:local .
-ARG BASE_IMAGE=cps-testbed:dashboard
+ARG BASE_IMAGE=ghcr.io/mazharulmd/cps-testbed:latest
 FROM ${BASE_IMAGE}
 
 WORKDIR /home/ubuntu
