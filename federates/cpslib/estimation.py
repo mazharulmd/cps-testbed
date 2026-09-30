@@ -29,19 +29,25 @@ class StateEstimator:
         sig = np.maximum(self.sigma * np.abs(z), 1e-4)
         W = 1.0 / sig ** 2
         G = (H.conj().T * W) @ H
-        observable = len(rows) >= net.n and np.linalg.matrix_rank(G, tol=1e-8) == net.n
+        # rank with NumPy's relative tolerance (G entries are ~1/sigma^2)
+        observable = len(rows) >= net.n and np.linalg.matrix_rank(G) == net.n
+        rhs = (H.conj().T * W) @ z
+        V = None
+        if observable:
+            try:
+                V = np.linalg.solve(G, rhs)
+            except np.linalg.LinAlgError:
+                observable = False
         pseudo = 0
         if not observable:
             # keep the estimator solvable with weak pseudo-measurements from the last estimate
             G = G + np.eye(net.n) / self.pseudo_sigma ** 2
-            rhs = (H.conj().T * W) @ z + self.last / self.pseudo_sigma ** 2
+            rhs = rhs + self.last / self.pseudo_sigma ** 2
             pseudo = net.n
-        else:
-            rhs = (H.conj().T * W) @ z
-        V = np.linalg.solve(G, rhs)
+            V = np.linalg.solve(G, rhs)
         r = z - H @ V
         J = float(np.sum(np.abs(r) ** 2 * W))
-        dof = max(2 * len(rows) - 2 * net.n + 2 * pseudo * 0, 1) if observable else max(2 * len(rows), 1)
+        dof = max(2 * len(rows) - 2 * net.n, 1) if observable else max(2 * len(rows), 1)
         thr = float(chi2.ppf(1 - self.alpha, dof))
         # normalized residuals: r_k / sqrt(Omega_kk), Omega = R - H G^-1 H^H
         worst = None

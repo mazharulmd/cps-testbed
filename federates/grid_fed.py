@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Grid federate: quasi-steady-state power system simulation with GridPACK.
+
+Every grid step the federate
+  1. applies control commands that have arrived over the NS-3 network (generator
+     voltage setpoints),
+  2. updates the loads (slow sinusoidal variation + small random walk, plus an
+     optional scheduled event),
+  3. re-solves the power flow with GridPACK (or the built-in Newton-Raphson solver),
+  4. publishes the true voltage/current phasors seen by every PMU,
+and logs the true grid state so experiments can be scored afterwards.
+
+Usage: grid_fed.py <run_dir>/run_config.json
+"""
+import csv, json, os, sys
+import numpy as np
+import helics as h
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cpslib.network import Network
+from cpslib.pmu import PmuLayout
+from cpslib.gridpack import GridPackSolver
+
+
+def main(cfg_path):
+    cfg = json.load(open(cfg_path))
+    out = cfg["outdir"]
+    topo = json.load(open(cfg["topology"]))
+    net = Network(topo)
+    layout = PmuLayout(net, cfg["pmu_buses"])
+    rng = np.random.default_rng(cfg["seed"])
+    dt, T = cfg["grid_step"], cfg["duration"]
+
+    solver = GridPackSolver(net, topo, os.path.join(out, "gridpack")) if cfg["solver"] == "gridpack" else None
+    pd0 = np.array([b["pd"] for b in topo["buses"]])
+    qd0 = np.array([b["qd"] for b in topo["buses"]])
+    vset = {}
+    for g in topo["gens"]:
+        if g["status"]:
+            vset[g["bus"]] = g["vg"]
+    lp = cfg["load"]
+    walk = np.zeros(net.n)
+    ev = cfg.get("event") or {}
+
+    fi = h.helicsCreateFederateInfo()
+    h.helicsFederateInfoSetCoreTypeFromString(fi, "zmq")
+    h.helicsFederateInfoSetCoreInitString(fi, "--federates=1")
+    h.helicsFederateInfoSetFlagOption(fi, h.HELICS_FLAG_UNINTERRUPTIBLE, True)
+    fed = h.helicsCreateValueFederate("grid", fi)
+    pub = h.helicsFederateRegisterGlobalPublication(fed, "grid/meas", h.HELICS_DATA_TYPE_STRING, "")
+    sub = h.helicsFederateRegisterSubscription(fed, "ns3/cmd_delivered", "")
+    h.helicsFederateEnterExecutingMode(fed)
+    print(f"[GRID] {len(topo['buses'])}-bus system, {len(cfg['pmu_buses'])} PMUs, solver={cfg['solver']}", flush=True)
+
+    truth = open(os.path.join(out, "grid_truth.csv"), "w", newline="")
+    tw = csv.writer(truth)
+    tw.writerow(["t"] + [f"v{b}" for b in net.bus_ids])
+    applied = open(os.path.join(out, "commands_applied.csv"), "w", newline="")
+    aw = csv.writer(applied)
+    aw.writerow(["t_applied", "gen_bus", "vset", "issued_t", "delivered_t", "reason"])
+    steps = open(os.path.join(out, "grid_steps.csv"), "w", newline="")
+    sw = csv.writer(steps)
+    sw.writerow(["t", "solver", "converged", "iterations", "total_load_mw", "max_v", "max_v_bus", "min_v", "min_v_bus"])
+
+    seen_cmds = set()
+    k = 0
+    while True:
+        t = round(k * dt, 9)
+        if t > T + 1e-9:
+            break
+        h.helicsFederateRequestTime(fed, t)
+        if h.helicsInputIsUpdated(sub):
+            for c in json.loads(h.helicsInputGetString(sub) or "[]"):
+                if c.get("id") in seen_cmds:
+                    continue
+                seen_cmds.add(c.get("id"))
+                vset[c["gen_bus"]] = c["vset"]
+                aw.writerow([t, c["gen_bus"], c["vset"], c.get("issued_t"), c.get("delivered_t"), c.get("reason", "")])
+                print(f"[GRID] t={t:.2f}s command applied: gen {c['gen_bus']} vset -> {c['vset']:.3f} pu", flush=True)
+        # loads
+        walk = walk + lp["walk"] * np.sqrt(dt) * rng.standard_normal(net.n)
+        scale = 1 + lp["amplitude"] * np.sin(2 * np.pi * t / lp["period"]) + walk
+        pd, qd = pd0 * scale, qd0 * scale
+        if ev.get("type") == "load_step" and t >= ev["t"]:
+            i = net.idx[ev["bus"]]
+            pd[i] *= 1 + ev["pct"] / 100; qd[i] *= 1 + ev["pct"] / 100
+        if ev.get("type") == "avr_fault" and ev.get("t") <= t and not ev.get("_done"):
+            vset[ev["bus"]] = ev["vset"]; ev["_done"] = True
+            aw.writerow([t, ev["bus"], ev["vset"], "", "", "event: AVR setpoint fault"])
+            print(f"[GRID] t={t:.2f}s EVENT: AVR fault at gen {ev['bus']}, vset -> {ev['vset']}", flush=True)
+        # solve
+        V, it, ok, used = None, 0, False, cfg["solver"]
+        if solver:
+            V, it, ok = solver.solve(pd, qd, vset)
+        if V is None or not ok:
+            used = "builtin"
+            V, it, ok = net.solve_pf(pd, qd, vset)
+        vm = np.abs(V)
+        tw.writerow([t] + [f"{x:.6f}" for x in vm])
+        sw.writerow([t, used, ok, it, f"{pd.sum():.2f}", f"{vm.max():.5f}", net.bus_ids[int(vm.argmax())],
+                     f"{vm.min():.5f}", net.bus_ids[int(vm.argmin())]])
+        meas = {str(pm["bus"]): ph for pm, ph in zip(layout.pmus, layout.measure(V))}
+        h.helicsPublicationPublishString(pub, json.dumps({"t": t, "pmus": meas}))
+        k += 1
+
+    for f in (truth, applied, steps):
+        f.close()
+    h.helicsFederateDisconnect(fed)
+    h.helicsFederateFree(fed)
+    print("[GRID] finished", flush=True)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

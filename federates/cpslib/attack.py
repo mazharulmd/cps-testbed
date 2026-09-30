@@ -1,6 +1,8 @@
 """False data injection attack planning.
 
 The attacker wants the control center to see |V_b| = v_fake at a target bus b.
+If it controls the PMU at b, the change is recomputed from each intercepted frame
+(adaptive); otherwise a fixed offset planned from the expected operating point is used.
 In the linear PMU model this is a state change c = (v_fake - |V_b|) e^{j theta_b}
 at bus b, which shifts every measurement row h by h_b * c.
 
@@ -29,6 +31,11 @@ def plan_fdi(layout, V_base, target_bus, v_fake, mode="simple"):
     for r in rows:
         p, ch = inv[r]
         d = col[r] * c
-        deltas.setdefault(layout.pmus[p]["bus"], []).append({"ch": int(ch), "dre": float(d.real), "dim": float(d.imag)})
-    return {"target_bus": target_bus, "v_fake": v_fake, "mode": mode,
+        deltas.setdefault(layout.pmus[p]["bus"], []).append(
+            {"ch": int(ch), "dre": float(d.real), "dim": float(d.imag),
+             "hre": float(col[r].real), "him": float(col[r].imag)})
+    # if the attacker holds the target bus's own PMU it reads the true voltage every
+    # frame and recomputes c, so the falsification tracks the changing grid state
+    ref = {"bus": target_bus, "ch": 0} if target_bus in deltas else None
+    return {"target_bus": target_bus, "v_fake": v_fake, "mode": mode, "ref": ref,
             "true_v_at_plan": float(abs(Vb)), "compromised_pmus": sorted(deltas), "deltas": deltas}

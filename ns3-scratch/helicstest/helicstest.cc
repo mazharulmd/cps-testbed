@@ -4,6 +4,10 @@
 #include "ns3/point-to-point-module.h"
 #include "ns3/applications-module.h"
 #include "helics/application_api/ValueFederate.hpp"
+#include "json.hpp"
+#include <algorithm>
+#include <complex>
+#include <set>
 #include <vector>
 #include <map>
 #include <fstream>
@@ -78,7 +82,7 @@ void PdcReceive(Ptr<Socket> socket) {
   }
 }
 
-int main (int argc, char *argv[])
+int RunLegacy (int argc, char *argv[])
 {
   double latencyMs = 10.0;
   double lossRate = 0.0;
@@ -205,4 +209,451 @@ int main (int argc, char *argv[])
             << ", MISSED violations (hidden by attack) " << missed << std::endl;
   Simulator::Destroy();
   return 0;
+}
+
+// ============================================================================
+// Multi-PMU mode (--config=<file>)
+//
+// PMUs at the optimally placed buses sample the phasors published by the grid
+// federate at a fixed reporting rate and send them over their own point-to-point
+// link (own latency, jitter and loss) to a single PDC at the control center. The
+// PDC time-aligns frames and releases a measurement set when every PMU has
+// reported or its wait window expires. Released sets go to the control-center
+// federate; its commands travel back over the network to generator nodes and
+// are then handed to the grid federate. HELICS time advances one frame at a time.
+// ============================================================================
+namespace mp
+{
+using json = nlohmann::json;
+using cplx = std::complex<double>;
+
+struct Pmu
+{
+  uint32_t id, bus, nch;
+  double delayMs;
+  Ptr<Socket> sock;
+};
+
+struct Rec
+{
+  double sent = -1, arr = -1;
+  std::string status = "not_sent";
+  bool attacked = false;
+};
+
+struct Buf
+{
+  std::map<size_t, std::pair<double, json>> data; // pmu index -> (arrival, phasors)
+  bool released = false;
+  bool scheduled = false;
+};
+
+static double rate = 30, pdcWaitS = 0.02, procMs = 2, jitterMs = 2, noiseMag = 0.001, noiseAng = 0.001;
+static std::vector<Pmu> pmus;
+static std::map<uint32_t, size_t> byId;
+static std::vector<std::vector<cplx>> state;
+static bool haveState = false;
+static std::map<uint64_t, Buf> bufs;
+static std::map<std::pair<uint64_t, uint32_t>, Rec> recs;
+static json outSets = json::array(), outCmds = json::array();
+static Ptr<NormalRandomVariable> noise;
+static Ptr<UniformRandomVariable> uni;
+static Ptr<Socket> ccCmdSock;
+static std::map<uint32_t, Ipv4Address> genAddr;
+static uint64_t cmdSent = 0, cmdDelivered = 0;
+
+// attack: applied to frames of the target PMUs between start and end
+static std::string atkType = "none";
+static double atkStart = 0, atkEnd = 0, atkDelayMs = 0;
+static std::set<uint32_t> atkBuses;
+static std::map<uint32_t, std::vector<std::pair<uint32_t, cplx>>> atkDeltas;
+// adaptive FDI: sensitivities h per channel; c is recomputed from the target's voltage
+static std::map<uint32_t, std::vector<std::pair<uint32_t, cplx>>> atkCoef;
+static int64_t atkRefBus = -1;
+static uint32_t atkRefCh = 0;
+static double atkVFake = 0;
+
+void
+Release (uint64_t k)
+{
+  Buf &b = bufs[k];
+  if (b.released)
+    return;
+  b.released = true;
+  json pm = json::object ();
+  for (auto &[i, v] : b.data)
+    {
+      pm[std::to_string (pmus[i].bus)] = {{"arr", v.first}, {"ph", v.second}};
+      Rec &r = recs[{k, pmus[i].id}];
+      r.arr = v.first;
+      r.status = "delivered";
+    }
+  outSets.push_back ({{"k", k}, {"t", k / rate}, {"release_t", Simulator::Now ().GetSeconds ()},
+                      {"expected", pmus.size ()}, {"pmus", pm}});
+}
+
+void
+PdcReceive (Ptr<Socket> socket)
+{
+  Ptr<Packet> pkt;
+  while ((pkt = socket->Recv ()))
+    {
+      std::string s (pkt->GetSize (), '\0');
+      pkt->CopyData ((uint8_t *) s.data (), s.size ());
+      json f = json::parse (s, nullptr, false);
+      if (f.is_discarded () || !byId.count (f["id"].get<uint32_t> ()))
+        continue;
+      size_t i = byId[f["id"].get<uint32_t> ()];
+      uint64_t k = f["k"].get<uint64_t> ();
+      Buf &b = bufs[k];
+      if (b.released)
+        {
+          recs[{k, pmus[i].id}].status = "late";
+          continue;
+        }
+      b.data[i] = {Simulator::Now ().GetSeconds (), f["ph"]};
+      if (b.data.size () == pmus.size ())
+        Release (k);
+      else if (!b.scheduled)
+        {
+          b.scheduled = true;
+          Simulator::Schedule (Seconds (pdcWaitS), &Release, k);
+        }
+    }
+}
+
+void
+SendFrame (size_t i, uint64_t k, std::string payload)
+{
+  Ptr<Packet> pkt = Create<Packet> ((const uint8_t *) payload.data (), payload.size ());
+  pmus[i].sock->Send (pkt);
+  Rec &r = recs[{k, pmus[i].id}];
+  r.sent = Simulator::Now ().GetSeconds ();
+  r.status = "sent";
+}
+
+// every PMU samples the latest grid state at the frame time k / rate
+void
+Sample (uint64_t k)
+{
+  double t = k / rate;
+  bool atkOn = atkType != "none" && t >= atkStart && t < atkEnd;
+  cplx c (0, 0);
+  bool adaptive = false;
+  if (atkOn && atkType == "fdi" && atkRefBus >= 0)
+    for (size_t i = 0; i < pmus.size (); ++i)
+      if (pmus[i].bus == uint32_t (atkRefBus) && atkRefCh < state[i].size ())
+        {
+          cplx v = state[i][atkRefCh];
+          c = std::polar (atkVFake - std::abs (v), std::arg (v));
+          adaptive = true;
+        }
+  for (size_t i = 0; i < pmus.size (); ++i)
+    {
+      Pmu &p = pmus[i];
+      std::vector<cplx> ph = state[i];
+      for (cplx &c : ph)
+        c = std::polar (std::abs (c) * (1 + noiseMag * noise->GetValue ()),
+                        std::arg (c) + noiseAng * noise->GetValue ());
+      bool attacked = atkOn && atkBuses.count (p.bus);
+      double extraMs = 0;
+      if (attacked)
+        {
+          recs[{k, p.id}].attacked = true;
+          if (atkType == "drop")
+            {
+              recs[{k, p.id}].status = "dropped_by_attack";
+              continue;
+            }
+          if (atkType == "fdi" && adaptive)
+            for (auto &[ch, h] : atkCoef[p.bus])
+              if (ch < ph.size ())
+                ph[ch] += h * c;
+          if (atkType == "fdi" && !adaptive)
+            for (auto &[ch, d] : atkDeltas[p.bus])
+              if (ch < ph.size ())
+                ph[ch] += d;
+          if (atkType == "delay")
+            extraMs = atkDelayMs;
+        }
+      json arr = json::array ();
+      for (cplx &c : ph)
+        arr.push_back ({c.real (), c.imag ()});
+      json f = {{"id", p.id}, {"k", k}, {"ph", arr}};
+      double delayMs = procMs + jitterMs * uni->GetValue () + extraMs;
+      Simulator::Schedule (MilliSeconds (delayMs), &SendFrame, i, k, f.dump ());
+    }
+}
+
+void
+GenReceive (uint32_t bus, Ptr<Socket> socket)
+{
+  Ptr<Packet> pkt;
+  while ((pkt = socket->Recv ()))
+    {
+      std::string s (pkt->GetSize (), '\0');
+      pkt->CopyData ((uint8_t *) s.data (), s.size ());
+      json c = json::parse (s, nullptr, false);
+      if (c.is_discarded ())
+        continue;
+      c["delivered_t"] = Simulator::Now ().GetSeconds ();
+      outCmds.push_back (c);
+      cmdDelivered++;
+    }
+}
+
+void
+SendCommand (json cmd)
+{
+  uint32_t bus = cmd["gen_bus"].get<uint32_t> ();
+  if (!genAddr.count (bus))
+    return;
+  std::string s = cmd.dump ();
+  ccCmdSock->SendTo (Create<Packet> ((const uint8_t *) s.data (), s.size ()), 0,
+                     InetSocketAddress (genAddr[bus], 5000));
+  cmdSent++;
+}
+
+double
+Percentile (std::vector<double> v, double q)
+{
+  if (v.empty ())
+    return 0;
+  std::sort (v.begin (), v.end ());
+  return v[std::min (v.size () - 1, size_t (q * (v.size () - 1) + 0.5))];
+}
+
+int
+Run (const std::string &cfgPath)
+{
+  std::ifstream in (cfgPath);
+  json cfg = json::parse (in);
+  std::string outdir = cfg["outdir"];
+  double duration = cfg.value ("duration", 10.0);
+  rate = cfg.value ("rate", 30.0);
+  pdcWaitS = cfg.value ("pdc_wait_ms", 20.0) / 1000.0;
+  procMs = cfg.value ("proc_ms", 2.0);
+  jitterMs = cfg.value ("jitter_ms", 2.0);
+  double loss = cfg.value ("loss", 0.0);
+  noiseMag = cfg["noise"].value ("mag", 0.001);
+  noiseAng = cfg["noise"].value ("ang", 0.001);
+  RngSeedManager::SetSeed (1);
+  RngSeedManager::SetRun (cfg.value ("seed", 1));
+
+  json atk = cfg.value ("attack", json::object ());
+  atkType = atk.value ("type", "none");
+  atkStart = atk.value ("start", 0.0);
+  atkEnd = atk.value ("end", 0.0);
+  atkDelayMs = atk.value ("delay_ms", 0.0);
+  for (auto &b : atk.value ("targets", json::array ()))
+    atkBuses.insert (b.get<uint32_t> ());
+  json deltas = atk.value ("deltas", json::object ());
+  for (auto &[bus, list] : deltas.items ())
+    for (auto &d : list)
+      {
+        atkDeltas[std::stoul (bus)].push_back ({d["ch"].get<uint32_t> (), cplx (d["dre"], d["dim"])});
+        atkCoef[std::stoul (bus)].push_back ({d["ch"].get<uint32_t> (), cplx (d.value ("hre", 0.0), d.value ("him", 0.0))});
+      }
+  if (atk.contains ("ref") && atk["ref"].is_object ())
+    {
+      atkRefBus = atk["ref"]["bus"].get<int64_t> ();
+      atkRefCh = atk["ref"]["ch"].get<uint32_t> ();
+      atkVFake = atk.value ("v_fake", 1.0);
+    }
+
+  // topology: star of PMU and generator nodes around the control-center node
+  NodeContainer cc;
+  cc.Create (1);
+  NodeContainer pmuNodes, genNodes;
+  pmuNodes.Create (cfg["pmus"].size ());
+  genNodes.Create (cfg["gens"].size ());
+  InternetStackHelper stack;
+  stack.Install (cc);
+  stack.Install (pmuNodes);
+  stack.Install (genNodes);
+  Ipv4AddressHelper addr;
+  addr.SetBase ("10.0.0.0", "255.255.255.252");
+  std::string accessRate = cfg.value ("access_rate", "10Mbps");
+  int64_t stream = 100;
+
+  noise = CreateObject<NormalRandomVariable> ();
+  uni = CreateObject<UniformRandomVariable> ();
+  noise->SetStream (1);
+  uni->SetStream (2);
+
+  Ptr<Socket> pdcSock = Socket::CreateSocket (cc.Get (0), UdpSocketFactory::GetTypeId ());
+  pdcSock->Bind (InetSocketAddress (Ipv4Address::GetAny (), 4713));
+  pdcSock->SetRecvCallback (MakeCallback (&PdcReceive));
+
+  for (size_t i = 0; i < cfg["pmus"].size (); ++i)
+    {
+      json &pc = cfg["pmus"][i];
+      Pmu p{pc["id"], pc["bus"], pc["nch"], pc["delay_ms"], nullptr};
+      PointToPointHelper p2p;
+      p2p.SetDeviceAttribute ("DataRate", StringValue (accessRate));
+      p2p.SetChannelAttribute ("Delay", TimeValue (MicroSeconds (int64_t (p.delayMs * 1000))));
+      NetDeviceContainer d = p2p.Install (pmuNodes.Get (i), cc.Get (0));
+      if (loss > 0)
+        {
+          Ptr<RateErrorModel> em = CreateObject<RateErrorModel> ();
+          em->SetAttribute ("ErrorRate", DoubleValue (loss));
+          em->SetAttribute ("ErrorUnit", StringValue ("ERROR_UNIT_PACKET"));
+          em->AssignStreams (stream++);
+          d.Get (1)->SetAttribute ("ReceiveErrorModel", PointerValue (em));
+        }
+      Ipv4InterfaceContainer ifc = addr.Assign (d);
+      addr.NewNetwork ();
+      p.sock = Socket::CreateSocket (pmuNodes.Get (i), UdpSocketFactory::GetTypeId ());
+      p.sock->Bind ();
+      p.sock->Connect (InetSocketAddress (ifc.GetAddress (1), 4713));
+      byId[p.id] = pmus.size ();
+      pmus.push_back (p);
+      state.push_back (std::vector<cplx> (p.nch, cplx (0, 0)));
+    }
+
+  for (size_t g = 0; g < cfg["gens"].size (); ++g)
+    {
+      json &gc = cfg["gens"][g];
+      uint32_t bus = gc["bus"];
+      PointToPointHelper p2p;
+      p2p.SetDeviceAttribute ("DataRate", StringValue (accessRate));
+      p2p.SetChannelAttribute ("Delay", TimeValue (MicroSeconds (int64_t (gc["delay_ms"].get<double> () * 1000))));
+      NetDeviceContainer d = p2p.Install (genNodes.Get (g), cc.Get (0));
+      Ipv4InterfaceContainer ifc = addr.Assign (d);
+      addr.NewNetwork ();
+      genAddr[bus] = ifc.GetAddress (0);
+      Ptr<Socket> s = Socket::CreateSocket (genNodes.Get (g), UdpSocketFactory::GetTypeId ());
+      s->Bind (InetSocketAddress (Ipv4Address::GetAny (), 5000));
+      s->SetRecvCallback (MakeBoundCallback (&GenReceive, bus));
+    }
+  ccCmdSock = Socket::CreateSocket (cc.Get (0), UdpSocketFactory::GetTypeId ());
+  ccCmdSock->Bind ();
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+
+  // HELICS federation: grid measurements in, aligned PDC sets out; commands both ways
+  helics::FederateInfo fi;
+  fi.coreType = helics::CoreType::ZMQ;
+  fi.coreInitString = "--federates=1";
+  fi.setFlagOption (HELICS_FLAG_UNINTERRUPTIBLE, true);
+  auto fed = std::make_shared<helics::ValueFederate> ("ns3_network", fi);
+  auto subMeas = fed->registerSubscription ("grid/meas");
+  auto subCmd = fed->registerSubscription ("cc/commands");
+  auto pubSets = fed->registerGlobalPublication<std::string> ("ns3/pdc");
+  auto pubCmd = fed->registerGlobalPublication<std::string> ("ns3/cmd_delivered");
+  fed->enterExecutingMode ();
+  std::cout << "[NS3] " << pmus.size () << " PMUs -> PDC at " << rate << " frames/s, loss " << loss
+            << ", attack " << atkType << std::endl;
+
+  // HELICS can report an input as updated again without a new publication, so the
+  // last payload handled is remembered and repeats are ignored
+  std::string lastMeas, lastCmds;
+  uint64_t K = uint64_t (std::llround (duration * rate));
+  for (uint64_t k = 0; k <= K; ++k)
+    {
+      fed->requestTime (k / rate);
+      // publish what the previous interval produced, now that HELICS time has caught up
+      if (!outSets.empty ())
+        {
+          pubSets.publish (outSets.dump ());
+          outSets = json::array ();
+        }
+      if (!outCmds.empty ())
+        {
+          pubCmd.publish (outCmds.dump ());
+          outCmds = json::array ();
+        }
+      if (subMeas.isUpdated () && subMeas.getString () != lastMeas)
+        {
+          lastMeas = subMeas.getString ();
+          json m = json::parse (lastMeas, nullptr, false);
+          if (!m.is_discarded ())
+            {
+              for (size_t i = 0; i < pmus.size (); ++i)
+                {
+                  auto it = m["pmus"].find (std::to_string (pmus[i].bus));
+                  if (it == m["pmus"].end ())
+                    continue;
+                  for (size_t c = 0; c < it->size () && c < state[i].size (); ++c)
+                    state[i][c] = cplx ((*it)[c][0], (*it)[c][1]);
+                }
+              haveState = true;
+            }
+        }
+      if (subCmd.isUpdated () && subCmd.getString () != lastCmds)
+        {
+          lastCmds = subCmd.getString ();
+          json cmds = json::parse (lastCmds, nullptr, false);
+          if (cmds.is_array ())
+            for (auto &c : cmds)
+              SendCommand (c);
+        }
+      if (k == K)
+        break;
+      if (haveState)
+        Sample (k);
+      Simulator::Stop (Seconds ((k + 1) / rate) - Simulator::Now ());
+      Simulator::Run ();
+    }
+  fed->finalize ();
+
+  // ---- outputs: per-frame records and a summary ----
+  std::ofstream fr (outdir + "/frames.csv");
+  fr << "k,t,pmu_id,bus,sent_t,arr_t,latency_ms,status,attacked\n";
+  std::map<std::string, uint64_t> counts;
+  std::vector<double> lat;
+  std::map<uint32_t, std::pair<uint64_t, uint64_t>> perPmu; // id -> (delivered, total)
+  for (auto &[key, r] : recs)
+    {
+      if (r.status == "sent")
+        r.status = "lost";
+      if (r.status == "not_sent")
+        continue;
+      counts[r.status]++;
+      double t = key.first / rate;
+      double l = r.arr >= 0 ? (r.arr - t) * 1000 : -1;
+      if (l >= 0)
+        lat.push_back (l);
+      auto &pp = perPmu[key.second];
+      pp.second++;
+      if (r.status == "delivered")
+        pp.first++;
+      fr << key.first << "," << t << "," << key.second << "," << pmus[byId[key.second]].bus << ","
+         << r.sent << "," << r.arr << "," << l << "," << r.status << "," << (r.attacked ? 1 : 0) << "\n";
+    }
+  json per = json::object ();
+  for (auto &[id, v] : perPmu)
+    per[std::to_string (pmus[byId[id]].bus)] = double (v.first) / std::max<uint64_t> (v.second, 1);
+  uint64_t total = 0;
+  for (auto &[s, n] : counts)
+    total += n;
+  double mean = 0;
+  for (double l : lat)
+    mean += l;
+  json summary = {{"frames_total", total},
+                  {"status_counts", counts},
+                  {"delivery_ratio", total ? double (counts["delivered"]) / total : 0.0},
+                  {"latency_ms", {{"mean", lat.empty () ? 0 : mean / lat.size ()},
+                                  {"p50", Percentile (lat, 0.5)},
+                                  {"p95", Percentile (lat, 0.95)},
+                                  {"max", Percentile (lat, 1.0)}}},
+                  {"per_pmu_delivery", per},
+                  {"commands_sent", cmdSent},
+                  {"commands_delivered", cmdDelivered}};
+  std::ofstream(outdir + "/ns3_summary.json") << summary.dump (2);
+  std::cout << "[NS3] done: " << counts["delivered"] << "/" << total << " frames delivered" << std::endl;
+  Simulator::Destroy ();
+  return 0;
+}
+} // namespace mp
+
+int
+main (int argc, char *argv[])
+{
+  for (int i = 1; i < argc; ++i)
+    {
+      std::string a = argv[i];
+      if (a.rfind ("--config=", 0) == 0)
+        return mp::Run (a.substr (9));
+    }
+  return RunLegacy (argc, argv);
 }

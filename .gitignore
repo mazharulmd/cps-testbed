@@ -11,3 +11,6 @@ node-red/flows_cred.json
 
 __pycache__/
 *.pyc
+
+# experiment outputs
+results/
