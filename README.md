@@ -1,4 +1,4 @@
-# CPS Testbed — Synchrophasor Co-Simulation
+# CPS Testbed - Synchrophasor Co-Simulation
 
 A cyber-physical co-simulation testbed for synchrophasor (PMU) monitoring and control of a power grid, built for the NSU–PGCB project *Remotely Accessible Cyber-Physical System Testbed and Open Architecture Synchrophasor Systems* (EPRC/58-2018-007-01). Three federates are time-synchronized by **HELICS**:
 
