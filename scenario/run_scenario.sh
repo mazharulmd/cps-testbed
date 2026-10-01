@@ -32,7 +32,7 @@ echo " Log: $LOG"
 echo "=========================================="
 
 # clean any stale processes
-pkill -f helics_broker 2>/dev/null
+pkill -f "helics_broker -f 2 " 2>/dev/null   # only the demo's broker, not those of cluster experiments
 pkill -f gridpack_fed 2>/dev/null
 sleep 2
 

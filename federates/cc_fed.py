@@ -59,7 +59,7 @@ def main(cfg_path):
 
     fi = h.helicsCreateFederateInfo()
     h.helicsFederateInfoSetCoreTypeFromString(fi, "zmq")
-    h.helicsFederateInfoSetCoreInitString(fi, "--federates=1")
+    h.helicsFederateInfoSetCoreInitString(fi, cfg.get("helics_core_init", "--federates=1"))
     fed = h.helicsCreateValueFederate("control_center", fi)
     pub = h.helicsFederateRegisterGlobalPublication(fed, "cc/commands", h.HELICS_DATA_TYPE_STRING, "")
     sub = h.helicsFederateRegisterSubscription(fed, "ns3/pdc", "")

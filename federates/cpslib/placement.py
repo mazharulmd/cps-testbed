@@ -17,7 +17,7 @@ from scipy.optimize import Bounds, LinearConstraint, milp
 def optimal_placement(net, redundancy=1):
     A = net.adjacency()
     n = net.n
-    k = np.minimum(redundancy, A.sum(axis=1))      # a leaf bus cannot be seen more than deg+1 times
+    k = np.minimum(redundancy, np.asarray(A.sum(axis=1)).ravel())   # a leaf bus cannot be seen more than deg+1 times
     res = milp(c=np.ones(n), constraints=LinearConstraint(A, lb=k, ub=np.inf),
                integrality=np.ones(n), bounds=Bounds(0, 1),
                options={"time_limit": 60})

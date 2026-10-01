@@ -20,7 +20,7 @@ def plan_fdi(layout, V_base, target_bus, v_fake, mode="simple"):
     b = net.idx[target_bus]
     Vb = V_base[b]
     c = (v_fake - abs(Vb)) * np.exp(1j * np.angle(Vb))
-    col = layout.H[:, b]
+    col = layout.column(b)
     rows = np.where(np.abs(col) > 1e-9)[0]
     inv = {r: k for k, r in layout.row.items()}
     if mode == "simple":

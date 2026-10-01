@@ -10,7 +10,7 @@ def write_raw(path, topo, pd=None, qd=None, vset=None, title="CPS testbed case")
         q = b["qd"] if qd is None else qd[i]
         kv = b["base_kv"] if b["base_kv"] > 0 else 100.0
         L.append(f"{b['id']:7d},{b['type']:2d},{p:10.4f},{q:10.4f},{b['gs']:10.3f},{b['bs']:10.3f},"
-                 f"{b['area']:4d}, 1.00000,   0.0000,'BUS-{b['id']:<8d}',{kv:9.4f},   1")
+                 f"{b['area']:4d},{b.get('vm', 1.0):8.5f},{b.get('va', 0.0):9.4f},'BUS-{b['id']:<8d}',{kv:9.4f},   1")
     L.append("0 / END OF BUS DATA, BEGIN GENERATOR DATA")
     count = {}
     for g in topo["gens"]:

@@ -12,14 +12,14 @@ and logs the true grid state so experiments can be scored afterwards.
 
 Usage: grid_fed.py <run_dir>/run_config.json
 """
-import csv, json, os, sys
+import csv, json, os, sys, time
 import numpy as np
 import helics as h
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cpslib.network import Network
 from cpslib.pmu import PmuLayout
-from cpslib.gridpack import GridPackSolver
+from cpslib.gridpack import GridPackSolver, GridPackMPISolver, server_available
 
 
 def main(cfg_path):
@@ -31,7 +31,16 @@ def main(cfg_path):
     rng = np.random.default_rng(cfg["seed"])
     dt, T = cfg["grid_step"], cfg["duration"]
 
-    solver = GridPackSolver(net, topo, os.path.join(out, "gridpack")) if cfg["solver"] == "gridpack" else None
+    solver = None
+    mpi = cfg.get("mpi") or {}
+    if cfg["solver"] == "gridpack":
+        if server_available():
+            # one MPI job for the whole run, started before joining HELICS (partitioning takes a while)
+            solver = GridPackMPISolver(net, topo, os.path.join(out, "gridpack"), mpi.get("np", 1), mpi.get("hostfile"))
+            print(f"[GRID] GridPACK pf_server: {solver.ready.get('nranks')} MPI ranks, "
+                  f"setup {solver.setup_s:.2f} s", flush=True)
+        else:
+            solver = GridPackSolver(net, topo, os.path.join(out, "gridpack"))
     pd0 = np.array([b["pd"] for b in topo["buses"]])
     qd0 = np.array([b["qd"] for b in topo["buses"]])
     vset = {}
@@ -44,7 +53,7 @@ def main(cfg_path):
 
     fi = h.helicsCreateFederateInfo()
     h.helicsFederateInfoSetCoreTypeFromString(fi, "zmq")
-    h.helicsFederateInfoSetCoreInitString(fi, "--federates=1")
+    h.helicsFederateInfoSetCoreInitString(fi, cfg.get("helics_core_init", "--federates=1"))
     h.helicsFederateInfoSetFlagOption(fi, h.HELICS_FLAG_UNINTERRUPTIBLE, True)
     fed = h.helicsCreateValueFederate("grid", fi)
     pub = h.helicsFederateRegisterGlobalPublication(fed, "grid/meas", h.HELICS_DATA_TYPE_STRING, "")
@@ -60,7 +69,8 @@ def main(cfg_path):
     aw.writerow(["t_applied", "gen_bus", "vset", "issued_t", "delivered_t", "reason"])
     steps = open(os.path.join(out, "grid_steps.csv"), "w", newline="")
     sw = csv.writer(steps)
-    sw.writerow(["t", "solver", "converged", "iterations", "total_load_mw", "max_v", "max_v_bus", "min_v", "min_v_bus"])
+    sw.writerow(["t", "solver", "converged", "iterations", "total_load_mw", "max_v", "max_v_bus", "min_v", "min_v_bus",
+                 "solve_ms", "mpi_ranks", "gridpack_solve_ms"])
 
     seen_cmds = set()
     k = 0
@@ -90,21 +100,33 @@ def main(cfg_path):
             print(f"[GRID] t={t:.2f}s EVENT: AVR fault at gen {ev['bus']}, vset -> {ev['vset']}", flush=True)
         # solve
         V, it, ok, used = None, 0, False, cfg["solver"]
+        t_solve = time.time()
         if solver:
-            V, it, ok = solver.solve(pd, qd, vset)
+            try:
+                V, it, ok = solver.solve(pd, qd, vset)
+            except RuntimeError as e:
+                # the MPI job died (e.g. a node went down): finish the run with the built-in solver
+                print(f"[GRID] t={t:.2f}s GridPACK failed ({e}); using the built-in solver from now on", flush=True)
+                solver = None
+        t_solve = time.time() - t_solve
+        srv = getattr(solver, "last", None) or {}
         if V is None or not ok:
             used = "builtin"
             V, it, ok = net.solve_pf(pd, qd, vset)
         vm = np.abs(V)
         tw.writerow([t] + [f"{x:.6f}" for x in vm])
         sw.writerow([t, used, ok, it, f"{pd.sum():.2f}", f"{vm.max():.5f}", net.bus_ids[int(vm.argmax())],
-                     f"{vm.min():.5f}", net.bus_ids[int(vm.argmin())]])
+                     f"{vm.min():.5f}", net.bus_ids[int(vm.argmin())], f"{1000 * t_solve:.2f}",
+                     getattr(solver, "np", 1) if used == "gridpack" else "",
+                     f"{1000 * float(srv['t_solve']):.2f}" if used == "gridpack" and "t_solve" in srv else ""])
         meas = {str(pm["bus"]): ph for pm, ph in zip(layout.pmus, layout.measure(V))}
         h.helicsPublicationPublishString(pub, json.dumps({"t": t, "pmus": meas}))
         k += 1
 
     for f in (truth, applied, steps):
         f.close()
+    if hasattr(solver, "close"):
+        solver.close()
     h.helicsFederateDisconnect(fed)
     h.helicsFederateFree(fed)
     print("[GRID] finished", flush=True)

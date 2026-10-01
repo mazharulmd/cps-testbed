@@ -1,6 +1,8 @@
 """Network model built from cases/<name>/topology.json (MATPOWER conventions)."""
 import json
 import numpy as np
+import scipy.sparse as sp
+from scipy.sparse.linalg import spsolve
 
 
 class Network:
@@ -34,27 +36,38 @@ class Network:
             Ytf[k] = -ys / tap
             f[k], t[k] = self.idx[br["from"]], self.idx[br["to"]]
         self.f, self.t = f, t
-        self.Yf = np.zeros((nl, n), complex); self.Yt = np.zeros((nl, n), complex)
-        self.Yf[np.arange(nl), f] = Yff; self.Yf[np.arange(nl), t] = Yft
-        self.Yt[np.arange(nl), f] = Ytf; self.Yt[np.arange(nl), t] = Ytt
+        # sparse so that grids with thousands of buses fit in memory
+        rows = np.arange(nl)
+        self.Yf = sp.csr_matrix((np.r_[Yff, Yft], (np.r_[rows, rows], np.r_[f, t])), shape=(nl, n))
+        self.Yt = sp.csr_matrix((np.r_[Ytf, Ytt], (np.r_[rows, rows], np.r_[f, t])), shape=(nl, n))
         ysh = np.array([complex(b["gs"], b["bs"]) / self.base for b in self.buses])
-        Cf = np.zeros((nl, n)); Cf[np.arange(nl), f] = 1
-        Ct = np.zeros((nl, n)); Ct[np.arange(nl), t] = 1
-        self.Ybus = Cf.T @ self.Yf + Ct.T @ self.Yt + np.diag(ysh)
+        Cf = sp.csr_matrix((np.ones(nl), (rows, f)), shape=(nl, n))
+        Ct = sp.csr_matrix((np.ones(nl), (rows, t)), shape=(nl, n))
+        self.Ybus = (Cf.T @ self.Yf + Ct.T @ self.Yt + sp.diags(ysh)).tocsr()
 
     def adjacency(self):
         """Bus-to-bus connectivity matrix including self connections (for PMU placement)."""
-        A = np.eye(self.n, dtype=int)
-        A[self.f, self.t] = 1; A[self.t, self.f] = 1
+        n = self.n
+        A = sp.coo_matrix((np.ones(2 * len(self.f) + n), (np.r_[self.f, self.t, np.arange(n)],
+                                                           np.r_[self.t, self.f, np.arange(n)])), shape=(n, n))
+        A = A.tocsr()
+        A.data[:] = 1
         return A
 
-    def solve_pf(self, pd=None, qd=None, vset=None, tol=1e-9, max_it=30):
-        """Newton-Raphson power flow (reference solver; loads in MW/MVAr, vset {bus_id: pu})."""
+    def solve_pf(self, pd=None, qd=None, vset=None, tol=1e-9, max_it=30, V_init=None):
+        """Newton-Raphson power flow (reference solver; loads in MW/MVAr, vset {bus_id: pu}).
+        Starts from V_init, else from the voltages stored with the case (vm/va, as MATPOWER
+        does), else flat."""
         n, base = self.n, self.base
         pd = np.array([b["pd"] for b in self.buses]) if pd is None else np.asarray(pd, float)
         qd = np.array([b["qd"] for b in self.buses]) if qd is None else np.asarray(qd, float)
         types = np.array([b["type"] for b in self.buses])
-        pg = np.zeros(n); V0 = np.ones(n)
+        pg = np.zeros(n)
+        if V_init is not None:
+            V0, A0 = np.abs(V_init).astype(float), np.angle(V_init)
+        else:
+            V0 = np.array([b.get("vm", 1.0) for b in self.buses])
+            A0 = np.deg2rad([b.get("va", 0.0) for b in self.buses])
         for g in self.gens:
             if g["status"]:
                 i = self.idx[g["bus"]]
@@ -70,7 +83,7 @@ class Network:
         types = np.where((types == 2) & ~has_gen, 1, types)
         ref = np.where(types == 3)[0]; pv = np.where(types == 2)[0]; pq = np.where(types == 1)[0]
         Sbus = (pg - pd - 1j * qd) / base
-        V = V0.astype(complex)
+        V = V0 * np.exp(1j * A0)
         pvpq = np.r_[pv, pq]
         for it in range(max_it):
             mis = V * np.conj(self.Ybus @ V) - Sbus
@@ -78,11 +91,14 @@ class Network:
             if np.max(np.abs(F)) < tol:
                 return V, it, True
             Ibus = self.Ybus @ V
-            dS_dVm = np.diag(V) @ np.conj(self.Ybus @ np.diag(V / np.abs(V))) + np.diag(np.conj(Ibus) * V / np.abs(V))
-            dS_dVa = 1j * np.diag(V) @ np.conj(np.diag(Ibus) - self.Ybus @ np.diag(V))
-            J = np.block([[dS_dVa[np.ix_(pvpq, pvpq)].real, dS_dVm[np.ix_(pvpq, pq)].real],
-                          [dS_dVa[np.ix_(pq, pvpq)].imag, dS_dVm[np.ix_(pq, pq)].imag]])
-            dx = np.linalg.solve(J, -F)
+            # MATPOWER's dSbus_dV with sparse matrices
+            dV, dI, dVn = sp.diags(V), sp.diags(Ibus), sp.diags(V / np.abs(V))
+            dS_dVm = dV @ (self.Ybus @ dVn).conj() + dI.conj() @ dVn
+            dS_dVa = 1j * dV @ (dI - self.Ybus @ dV).conj()
+            dS_dVa, dS_dVm = dS_dVa.tocsr(), dS_dVm.tocsr()
+            J = sp.bmat([[dS_dVa[pvpq][:, pvpq].real, dS_dVm[pvpq][:, pq].real],
+                         [dS_dVa[pq][:, pvpq].imag, dS_dVm[pq][:, pq].imag]], format="csc")
+            dx = spsolve(J, -F)
             Va = np.angle(V); Vm = np.abs(V)
             Va[pvpq] += dx[:len(pvpq)]; Vm[pq] += dx[len(pvpq):]
             V = Vm * np.exp(1j * Va)

@@ -7,30 +7,42 @@ With all quantities complex, the measurements are linear in the bus voltages:
     z = H V,   H rows = unit vector (voltage) or a row of Yf / Yt (current)
 """
 import numpy as np
+import scipy.sparse as sp
 
 
 class PmuLayout:
     def __init__(self, net, pmu_buses):
         self.net = net
         self.pmus = []          # [{"bus": b, "id": k, "channels": [(kind, branch_idx, end)]}]
+        incident = {}
+        for br, (f, t) in enumerate(zip(net.f, net.t)):
+            incident.setdefault(f, []).append((br, "from"))
+            incident.setdefault(t, []).append((br, "to"))
         rows = []
         for k, b in enumerate(pmu_buses):
             i = net.idx[b]
             ch = [("V", -1, "")]
-            rows.append(np.eye(net.n)[i].astype(complex))
-            for br, (f, t) in enumerate(zip(net.f, net.t)):
-                if f == i:
-                    ch.append(("I", br, "from")); rows.append(net.Yf[br])
-                elif t == i:
-                    ch.append(("I", br, "to")); rows.append(net.Yt[br])
+            rows.append(sp.csr_matrix(([1.0 + 0j], ([0], [i])), shape=(1, net.n)))
+            for br, end in sorted(incident.get(i, [])):
+                ch.append(("I", br, end))
+                rows.append(net.Yf[br] if end == "from" else net.Yt[br])
             self.pmus.append({"bus": b, "id": k + 1, "channels": ch})
-        self.H = np.array(rows)
+        self.H = sp.vstack(rows, format="csr")
+        self.Hc = self.H.tocsc()
         # (pmu index, channel index) -> row of H
         self.row = {}
         r = 0
         for p, pm in enumerate(self.pmus):
             for c in range(len(pm["channels"])):
                 self.row[(p, c)] = r; r += 1
+        # buses each PMU makes observable: its own and the far ends of its measured branches
+        self.sees = [{net.idx[pm["bus"]]} | {int(net.t[br]) if end == "from" else int(net.f[br])
+                                             for kind, br, end in pm["channels"] if kind == "I"}
+                     for pm in self.pmus]
+
+    def column(self, bus_index):
+        """Dense column of H for one bus: how strongly each channel depends on that bus voltage."""
+        return np.asarray(self.Hc[:, bus_index].todense()).ravel()
 
     def measure(self, V):
         """Noise-free phasors per PMU, as nested lists [[re, im], ...]."""

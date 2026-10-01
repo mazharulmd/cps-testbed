@@ -13,11 +13,14 @@ Start: uvicorn app:app --host 0.0.0.0 --port 8080   (from this directory)
 import csv, json, os, queue, re, secrets, subprocess, sys, threading, time
 from typing import Optional
 
+import base64
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
+
+import scenario as scen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, ".."))
@@ -28,6 +31,7 @@ os.makedirs(RESULTS, exist_ok=True)
 sys.path.insert(0, FED)
 from cpslib.network import Network  # noqa: E402
 from cpslib.placement import optimal_placement  # noqa: E402
+from cpslib import cluster, grids  # noqa: E402
 
 app = FastAPI(title="CPS Testbed")
 security = HTTPBasic(auto_error=False)
@@ -45,9 +49,9 @@ def auth(creds: Optional[HTTPBasicCredentials] = Depends(security)):
 
 # ------------------------------------------------------------------ experiment queue
 class RunRequest(BaseModel):
-    case: str = Field("14", pattern=r"^(14|30|39|57|118|300)$")
+    case: str = Field("14", pattern=r"^[A-Za-z0-9_-]{1,48}$")   # 14..300, ieee14..ieee300 or an uploaded grid id
     name: str = Field("web", pattern=r"^[A-Za-z0-9_-]{1,40}$")
-    duration: float = Field(10, ge=1, le=60)
+    duration: float = Field(10, ge=1, le=120)
     grid_step: float = Field(0.5, ge=0.1, le=5)
     rate: float = Field(30, ge=1, le=120)
     solver: str = Field("gridpack", pattern=r"^(gridpack|builtin)$")
@@ -69,14 +73,18 @@ class RunRequest(BaseModel):
     vmax: float = Field(1.08, ge=1.0, le=1.5)
     event: str = Field("none", pattern=r"^(none|avr:\d+:[0-9.]+:[0-9.]+|load:\d+:-?[0-9.]+:[0-9.]+)$")
     seed: int = Field(1, ge=1, le=10**6)
+    mpi_np: int = Field(1, ge=1, le=256)
 
     def argv(self):
         a = []
         for k, v in self.model_dump().items():
-            if v is None:
+            if v is None or k == "case":
                 continue
             a += [f"--{k.replace('_', '-')}", str(v)]
-        return a
+        c = self.case[4:] if self.case.startswith("ieee") else self.case
+        if c in grids.BUILTIN:
+            return ["--case", c] + a
+        return ["--case", self.case, "--grid", grids.grid_dir(self.case)] + a
 
 
 jobs = {}           # job id -> dict
@@ -84,14 +92,20 @@ job_queue = queue.Queue()
 lock = threading.Lock()
 
 
-def worker():
+CLUSTER = cluster.load()
+
+
+def worker(slot):
+    """One of max_parallel_jobs workers; each owns a HELICS port range so runs can overlap."""
+    port = CLUSTER["helics_port_base"] + 100 * (slot + 1)
     while True:
         jid = job_queue.get()
         job = jobs[jid]
-        job.update(status="running", started=time.time())
+        job.update(status="running", started=time.time(), worker=slot)
         log_path = os.path.join(RESULTS, f".job_{jid}.log")
         with open(log_path, "w") as log:
-            p = subprocess.Popen([sys.executable, os.path.join(FED, "run_experiment.py")] + job["argv"],
+            p = subprocess.Popen([sys.executable, os.path.join(FED, "run_experiment.py")] + job["argv"] +
+                                 ["--helics-port", str(port), "--out", RESULTS],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                  text=True, cwd=FED)
             for line in p.stdout:
@@ -104,7 +118,8 @@ def worker():
         job.update(status="done" if ok else "failed", finished=time.time(), log=log_path)
 
 
-threading.Thread(target=worker, daemon=True).start()
+for _slot in range(max(1, int(CLUSTER["max_parallel_jobs"]))):
+    threading.Thread(target=worker, args=(_slot,), daemon=True).start()
 
 
 # ------------------------------------------------------------------ helpers
@@ -153,29 +168,139 @@ def cases(_=Depends(auth)):
     return list(_case_cache.values())
 
 
-@app.post("/api/runs")
-def submit(req: RunRequest, _=Depends(auth)):
+def queue_run(req: RunRequest, source=None):
+    """Validate a run against its grid and the cluster, then queue it."""
     if req.attack_end <= req.attack_start and req.attack != "none":
         raise HTTPException(422, "attack end must be after attack start")
-    info = {c["case"]: c for c in cases()}[req.case]
+    try:
+        info = grids.get_info(req.case)
+    except grids.GridError as e:
+        raise HTTPException(422, str(e))
+    label = info["name"]
     buses, gens = set(info["bus_ids"]), set(info["gens"])
     if req.target is not None and req.target not in buses:
-        raise HTTPException(422, f"target bus {req.target} is not in IEEE {req.case} "
+        raise HTTPException(422, f"target bus {req.target} is not in {label} "
                                  f"(buses {min(buses)}-{max(buses)})")
     if req.event != "none":
         kind, bus = req.event.split(":")[:2]
         bus = int(bus)
         if kind == "avr" and bus not in gens:
-            raise HTTPException(422, f"bus {bus} is not a generator bus in IEEE {req.case}; "
-                                     f"generator buses: {', '.join(map(str, sorted(gens)))}")
+            shown = sorted(gens)
+            more = f" ... ({len(shown)} in all)" if len(shown) > 40 else ""
+            raise HTTPException(422, f"bus {bus} is not a generator bus in {label}; "
+                                     f"generator buses: {', '.join(map(str, shown[:40]))}{more}")
         if kind == "load" and bus not in buses:
-            raise HTTPException(422, f"load bus {bus} is not in IEEE {req.case}")
+            raise HTTPException(422, f"load bus {bus} is not in {label}")
+    slots = cluster.mpi_slots(CLUSTER)
+    if req.solver == "gridpack" and req.mpi_np > slots:
+        raise HTTPException(422, f"{req.mpi_np} MPI ranks requested; the cluster has {slots} MPI slots")
     with lock:
         jid = secrets.token_hex(4)
         jobs[jid] = {"id": jid, "status": "queued", "request": req.model_dump(), "argv": req.argv(),
-                     "submitted": time.time()}
+                     "grid": label, "source": source, "submitted": time.time()}
     job_queue.put(jid)
     return jobs[jid]
+
+
+@app.post("/api/runs")
+def submit(req: RunRequest, _=Depends(auth)):
+    return queue_run(req)
+
+
+class Upload(BaseModel):
+    filename: str = Field(..., max_length=200)
+    content: str = Field(..., max_length=40_000_000)
+    encoding: str = Field("text", pattern=r"^(text|base64)$")
+
+    def data(self):
+        return base64.b64decode(self.content) if self.encoding == "base64" else self.content.encode()
+
+
+def _scenarios_from(filename, data):
+    try:
+        items = scen.parse(data.decode("utf-8", errors="replace"))
+    except ValueError as e:
+        raise HTTPException(422, f"{filename}: {e}")
+    reqs = []
+    for sc in items:
+        try:
+            reqs.append(RunRequest(**sc.run_args()))
+        except Exception as e:
+            raise HTTPException(422, f"{filename} ({sc.name}): {e}")
+    # validate all before queueing any, so a bad entry does not leave half a batch queued
+    for r in reqs:
+        try:
+            grids.get_info(r.case)
+        except grids.GridError as e:
+            raise HTTPException(422, f"{filename} ({r.name}): {e}")
+    return [queue_run(r, source=filename) for r in reqs]
+
+
+@app.post("/api/scenarios")
+def upload_scenario(up: Upload, _=Depends(auth)):
+    """Queue the experiment(s) in an uploaded scenario file (YAML or JSON)."""
+    return _scenarios_from(up.filename, up.data())
+
+
+@app.post("/api/scenarios/file")
+async def upload_scenario_file(file: UploadFile = File(...), _=Depends(auth)):
+    return _scenarios_from(file.filename, await file.read())
+
+
+@app.get("/api/scenario-template", response_class=PlainTextResponse)
+def scenario_template(_=Depends(auth)):
+    return open(os.path.join(HERE, "scenario_template.yaml")).read()
+
+
+def _save_grid(filename, data):
+    try:
+        info = grids.save_upload(filename, data)
+    except grids.GridError as e:
+        raise HTTPException(422, f"{filename}: {e}")
+    return {k: v for k, v in info.items() if k != "bus_ids"}
+
+
+@app.get("/api/grids")
+def list_grids(_=Depends(auth)):
+    return [{k: v for k, v in g.items() if k not in ("bus_ids", "gens")} | {"n_gens": len(g["gens"])}
+            for g in grids.list_grids()]
+
+
+@app.get("/api/grids/{grid_id}")
+def grid_info(grid_id: str, _=Depends(auth)):
+    try:
+        return grids.get_info(grid_id)
+    except grids.GridError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/grids")
+def upload_grid(up: Upload, _=Depends(auth)):
+    """Register an uploaded grid (MATPOWER .m or testbed topology .json)."""
+    return _save_grid(up.filename, up.data())
+
+
+@app.post("/api/grids/file")
+async def upload_grid_file(file: UploadFile = File(...), _=Depends(auth)):
+    return _save_grid(file.filename, await file.read())
+
+
+@app.delete("/api/grids/{grid_id}")
+def delete_grid(grid_id: str, _=Depends(auth)):
+    try:
+        grids.delete(grid_id)
+    except grids.GridError as e:
+        raise HTTPException(422, str(e))
+    return {"deleted": grid_id}
+
+
+@app.get("/api/cluster")
+def cluster_status(_=Depends(auth)):
+    running = [j for j in jobs.values() if j["status"] == "running"]
+    return {"nodes": cluster.status(CLUSTER), "mpi_slots": cluster.mpi_slots(CLUSTER),
+            "default_np": CLUSTER["mpi"].get("default_np", 1), "max_parallel_jobs": CLUSTER["max_parallel_jobs"],
+            "placement": CLUSTER["placement"], "running": len(running),
+            "queued": sum(1 for j in jobs.values() if j["status"] == "queued")}
 
 
 @app.get("/api/jobs")
@@ -200,7 +325,10 @@ def list_runs(_=Depends(auth)):
         s = json.load(open(p))
         meta = json.load(open(os.path.join(RESULTS, d, "meta.json")))
         a = meta["args"]
-        runs.append({"id": d, "name": s["name"], "case": a["case"], "attack": a["attack"], "loss": a["loss"],
+        runs.append({"id": d, "name": s["name"], "case": a["case"], "grid": s.get("case"), "attack": a["attack"],
+                     "loss": a["loss"], "mpi_np": a.get("mpi_np"),
+                     "gridpack_ms": (s.get("gridpack") or {}).get("solve_ms_mean"),
+                     "wall_s": s.get("wall_time_s"),
                      "latency": a["latency"], "bdd": a["bdd"], "control": a["control"], "placement": a["placement"],
                      "event": a["event"], "violation_s": s["grid"]["true_violation_time_s"],
                      "detection": s["attack"].get("detection_rate_pct"),
@@ -253,4 +381,8 @@ def series(run_id: str, bus: Optional[int] = None, _=Depends(auth)):
             per[b][2] += 1
     out["pmus"] = [{"bus": int(b), "delivery": round(v[0] / v[1], 3), "attacked_frames": v[2]}
                    for b, v in sorted(per.items(), key=lambda x: int(x[0]))]
+    # GridPACK per grid step: whole solve as seen by the grid federate, and the MPI solve alone
+    out["gridpack"] = [[float(r["t"]), float(r["solve_ms"]) if r.get("solve_ms") else None,
+                        float(r["gridpack_solve_ms"]) if r.get("gridpack_solve_ms") else None, r.get("solver")]
+                       for r in read_csv(os.path.join(d, "grid_steps.csv"))]
     return out

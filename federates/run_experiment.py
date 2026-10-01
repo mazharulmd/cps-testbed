@@ -8,7 +8,7 @@ Example:
 Results go to <out>/<run id>/: configs, federate logs, per-frame network records,
 state estimation log, true grid state and summary.json.
 """
-import argparse, csv, json, os, subprocess, sys, time
+import argparse, csv, json, os, socket, subprocess, sys, time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +17,7 @@ from cpslib.network import Network
 from cpslib.placement import optimal_placement
 from cpslib.pmu import PmuLayout
 from cpslib.attack import plan_fdi
+from cpslib import cluster
 
 CASES_DIR = os.environ.get("CPS_CASES", os.path.join(HERE, "..", "cases"))
 NS3_BIN = os.environ.get("CPS_NS3_BIN", "/home/ubuntu/software/ns-3/build/scratch/helicstest/ns3-dev-helicstest")
@@ -25,7 +26,10 @@ PY = sys.executable
 
 def parse_args(argv=None):
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    a.add_argument("--case", default="14", choices=["14", "30", "39", "57", "118", "300"])
+    a.add_argument("--case", default="14", help="IEEE case (14, 30, 39, 57, 118, 300) or a label for --grid")
+    a.add_argument("--grid", default=None, help="directory of an uploaded grid (topology.json); overrides --case")
+    a.add_argument("--mpi-np", type=int, default=None, help="GridPACK MPI ranks (default: cluster setting or 1)")
+    a.add_argument("--helics-port", type=int, default=None, help="HELICS broker port (default: first free)")
     a.add_argument("--name", default="run")
     a.add_argument("--duration", type=float, default=10.0, help="simulated seconds")
     a.add_argument("--grid-step", type=float, default=0.5, help="power flow interval (s)")
@@ -55,8 +59,26 @@ def parse_args(argv=None):
     return a.parse_args(argv)
 
 
-def build_configs(args, run_dir):
-    topo_path = os.path.abspath(os.path.join(CASES_DIR, f"ieee{args.case}", "topology.json"))
+def case_dir(args):
+    return os.path.abspath(args.grid or os.path.join(CASES_DIR, f"ieee{args.case}"))
+
+
+def free_port(base):
+    """First broker port base + 100k not in use here (brokers of parallel runs are spaced
+    apart because each HELICS core takes a few ports above its broker's)."""
+    for k in range(50):
+        port = base + 100 * k
+        with socket.socket() as s:
+            try:
+                s.bind(("0.0.0.0", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError("no free HELICS port")
+
+
+def build_configs(args, run_dir, cl, port):
+    topo_path = os.path.join(case_dir(args), "topology.json")
     topo = json.load(open(topo_path))
     net = Network(topo)
     rng = np.random.default_rng(args.seed)
@@ -88,7 +110,7 @@ def build_configs(args, run_dir):
                   "ref": plan["ref"], "v_fake": fake}
     elif args.attack in ("drop", "delay"):
         # attack the PMUs that observe the target bus (its own and its neighbours')
-        col = np.abs(layout.H[:, net.idx[target]]) > 1e-9
+        col = np.abs(layout.column(net.idx[target])) > 1e-9
         obs = sorted({layout.pmus[p]["bus"] for (p, c), r in layout.row.items() if col[r]})
         attack = {"type": args.attack, "targets": obs, "delay_ms": args.attack_delay}
     attack.update(start=args.attack_start, end=args.attack_end)
@@ -102,14 +124,20 @@ def build_configs(args, run_dir):
            "access_rate": "10Mbps", "noise": {"mag": 0.001, "ang": 0.001}, "attack": attack,
            "pmus": [{"id": pm["id"], "bus": pm["bus"], "nch": len(pm["channels"]), "delay_ms": link_delay()}
                     for pm in layout.pmus],
-           "gens": [{"bus": g, "delay_ms": link_delay()} for g in gens]}
+           "gens": [{"bus": g, "delay_ms": link_delay()} for g in gens],
+           "helics_core_init": cluster.core_init(cl, cl["placement"].get("ns3", cl["head"]), port)}
     run = {"outdir": run_dir, "topology": topo_path, "case": args.case, "duration": args.duration,
            "grid_step": args.grid_step, "seed": args.seed, "solver": args.solver, "pmu_buses": pmu_buses,
            "load": {"amplitude": 0.02, "period": 20.0, "walk": 0.002}, "event": event,
            "se_sigma": 0.002, "bdd_alpha": 0.01, "bdd": args.bdd == "on",
            "control": {"enabled": args.control == "on", "vmin": args.vmin, "vmax": args.vmax, "step": 0.01,
-                       "deadband": 0.003, "cooldown": 1.0, "vset_min": 0.95, "vset_max": 1.10}}
-    meta = {"args": vars(args), "target_bus": target, "attack_plan": plan,
+                       "deadband": 0.003, "cooldown": 1.0, "vset_min": 0.95, "vset_max": 1.10},
+           "mpi": {"np": args.mpi_np, "hostfile": cl["mpi"].get("hostfile") if cl["nodes"] else None},
+           "helics_port": port, "helics_core_init": cluster.core_init(cl, cl["placement"].get("grid", cl["head"]), port),
+           "cc_core_init": cluster.core_init(cl, cl["placement"].get("cc", cl["head"]), port)}
+    meta = {"args": vars(args), "target_bus": target, "attack_plan": plan, "grid_name": grid_name(args, topo),
+            "cluster": {"placement": {r: cl["placement"].get(r, cl["head"]) for r in ("broker", "grid", "ns3", "cc")},
+                        "mpi_np": args.mpi_np, "mpi_hosts": [n["host"] for n in cl["nodes"]], "helics_port": port},
             "pmus": layout.describe(), "n_buses": net.n, "n_branches": len(net.branches),
             "n_gens": len(gens), "base_case_max_v": float(np.abs(V0).max())}
     for name, obj in (("ns3_config.json", ns3), ("run_config.json", run), ("meta.json", meta)):
@@ -118,19 +146,31 @@ def build_configs(args, run_dir):
     return meta
 
 
-def run_federation(run_dir):
-    subprocess.run(["pkill", "-f", "helics_broker"], stderr=subprocess.DEVNULL)
-    logs = {n: open(os.path.join(run_dir, f"{n}.log"), "w") for n in ("broker", "grid", "ns3", "cc")}
-    procs = {
-        "broker": subprocess.Popen(["helics_broker", "-f", "3", "--loglevel=warning"], stdout=logs["broker"],
-                                   stderr=subprocess.STDOUT),
-        "grid": subprocess.Popen([PY, os.path.join(HERE, "grid_fed.py"), os.path.join(run_dir, "run_config.json")],
-                                 stdout=logs["grid"], stderr=subprocess.STDOUT),
-        "cc": subprocess.Popen([PY, os.path.join(HERE, "cc_fed.py"), os.path.join(run_dir, "run_config.json")],
-                               stdout=logs["cc"], stderr=subprocess.STDOUT),
-        "ns3": subprocess.Popen([NS3_BIN, f"--config={os.path.join(run_dir, 'ns3_config.json')}"],
-                                stdout=logs["ns3"], stderr=subprocess.STDOUT),
+def grid_name(args, topo):
+    if args.grid:
+        return topo.get("name") or os.path.basename(os.path.normpath(args.grid))
+    return f"IEEE {args.case}-bus"
+
+
+def run_federation(run_dir, cl, port):
+    """Start the broker and the three federates on their nodes; stop all if one fails."""
+    where = {r: cl["placement"].get(r, cl["head"]) for r in ("broker", "grid", "ns3", "cc")}
+    cfg = os.path.join(run_dir, "run_config.json")
+    cc_cfg = os.path.join(run_dir, "cc_config.json")
+    run = json.load(open(cfg))
+    json.dump(dict(run, helics_core_init=run["cc_core_init"]), open(cc_cfg, "w"), indent=1)
+    argv = {
+        "broker": cluster.broker_args(port),
+        "grid": [PY, os.path.join(HERE, "grid_fed.py"), cfg],
+        "cc": [PY, os.path.join(HERE, "cc_fed.py"), cc_cfg],
+        "ns3": [NS3_BIN, f"--config={os.path.join(run_dir, 'ns3_config.json')}"],
     }
+    logs = {n: open(os.path.join(run_dir, f"{n}.log"), "w") for n in argv}
+    procs = {}
+    for n in ("broker", "grid", "cc", "ns3"):
+        procs[n] = cluster.launch(where[n], argv[n], logs[n], HERE)
+        if n == "broker":
+            time.sleep(0.5)
     t0 = time.time()
     codes = {}
     # if one federate fails the others would wait forever for it, so stop them all
@@ -144,6 +184,7 @@ def run_federation(run_dir):
                 if n not in codes:
                     p.kill(); p.wait()
                     codes[n] = "killed" if failed else "timeout"
+                    cluster.kill_remote(where[n], run_dir)
         time.sleep(0.2)
     for f in logs.values():
         f.close()
@@ -157,7 +198,8 @@ def read_csv(path):
 
 def analyze(run_dir, meta, codes, wall):
     args = meta["args"]
-    s = {"name": args["name"], "case": f"IEEE {args['case']}-bus", "exit_codes": codes, "wall_time_s": round(wall, 1)}
+    s = {"name": args["name"], "case": meta["grid_name"], "exit_codes": codes, "wall_time_s": round(wall, 1),
+         "cluster": meta["cluster"]}
     ns3 = json.load(open(os.path.join(run_dir, "ns3_summary.json")))
     s["network"] = ns3
     truth = read_csv(os.path.join(run_dir, "grid_truth.csv"))
@@ -180,6 +222,12 @@ def analyze(run_dir, meta, codes, wall):
                  "first_violation_t": float(viol_steps[0]["t"]) if viol_steps else None,
                  "last_violation_t": float(viol_steps[-1]["t"]) if viol_steps else None,
                  "commands_applied": len([r for r in applied if not r["reason"].startswith("event")])}
+    gp = [float(r["gridpack_solve_ms"]) for r in steps if r.get("gridpack_solve_ms")]
+    sv = [float(r["solve_ms"]) for r in steps if r.get("solve_ms")]
+    s["gridpack"] = {"mpi_ranks": args.get("mpi_np"),
+                     "solve_ms_mean": round(float(np.mean(gp)), 2) if gp else None,
+                     "solve_ms_max": round(float(np.max(gp)), 2) if gp else None,
+                     "step_ms_mean": round(float(np.mean(sv)), 2) if sv else None}
     # state estimation accuracy (clean data) and detection
     errs, missed = [], 0
     ast, aend = args["attack_start"], args["attack_end"]
@@ -226,12 +274,17 @@ def analyze(run_dir, meta, codes, wall):
 
 def main(argv=None):
     args = parse_args(argv)
+    cl = cluster.load()
+    if args.mpi_np is None:
+        args.mpi_np = int(cl["mpi"].get("default_np", 1))
+    port = args.helics_port or free_port(cl["helics_port_base"])
     run_id = time.strftime("%Y%m%d_%H%M%S") + f"_{args.name}"
     run_dir = os.path.abspath(os.path.join(args.out, run_id))
     os.makedirs(run_dir, exist_ok=True)
-    meta = build_configs(args, run_dir)
-    print(f"[RUN] {run_id}: IEEE {args.case}-bus, {len(meta['pmus'])} PMUs, attack={args.attack}", flush=True)
-    codes, wall = run_federation(run_dir)
+    meta = build_configs(args, run_dir, cl, port)
+    print(f"[RUN] {run_id}: {meta['grid_name']}, {len(meta['pmus'])} PMUs, attack={args.attack}, "
+          f"GridPACK MPI ranks={args.mpi_np}, HELICS port {port}", flush=True)
+    codes, wall = run_federation(run_dir, cl, port)
     if any(c != 0 for c in codes.values()):
         print(f"[RUN] federate exit codes: {codes} (see *.log in {run_dir})", flush=True)
     s = analyze(run_dir, meta, codes, wall)

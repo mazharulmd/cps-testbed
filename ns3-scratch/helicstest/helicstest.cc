@@ -533,7 +533,8 @@ Run (const std::string &cfgPath)
   // HELICS federation: grid measurements in, aligned PDC sets out; commands both ways
   helics::FederateInfo fi;
   fi.coreType = helics::CoreType::ZMQ;
-  fi.coreInitString = "--federates=1";
+  // on a cluster the broker runs on another node: "--federates=1 --broker_address=tcp://head:23500 ..."
+  fi.coreInitString = cfg.value ("helics_core_init", std::string ("--federates=1"));
   fi.setFlagOption (HELICS_FLAG_UNINTERRUPTIBLE, true);
   auto fed = std::make_shared<helics::ValueFederate> ("ns3_network", fi);
   auto subMeas = fed->registerSubscription ("grid/meas");

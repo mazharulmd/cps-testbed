@@ -25,6 +25,8 @@ module.exports = {
     // Generate one with: node-red admin hash-pw
     adminAuth: process.env.NODERED_ADMIN_HASH ? { type: "credentials", users: [{ username: process.env.NODERED_ADMIN_USER || "admin", password: process.env.NODERED_ADMIN_HASH, permissions: "*" }] } : undefined,
     httpNodeAuth: process.env.NODERED_ADMIN_HASH ? { user: process.env.NODERED_ADMIN_USER || "admin", pass: process.env.NODERED_ADMIN_HASH } : undefined,
+    // grid models uploaded on the Experiments page can be several MB (MATPOWER cases)
+    dashboard: { maxHttpBufferSize: 50 * 1024 * 1024 },
 
 /*******************************************************************************
  * Flow File and User Directory Settings

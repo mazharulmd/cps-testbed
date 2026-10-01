@@ -20,6 +20,16 @@ A **web application** (`webapp/`, port 8080) lets users pick a bus system and sc
 
 📄 **Technical report:** [CPS_Testbed_Technical_Report.pdf](documentation/CPS_Testbed_Technical_Report.pdf): architecture, validation, PMU placement and experiment results for the single-PMU prototype and the extended multi-PMU testbed.
 
+## Cluster: GridPACK on MPI, uploads, remote dashboard
+
+The testbed also runs as a cluster ([`cluster/`](cluster/README.md)): GridPACK is a persistent MPI job (`gridpack/pf_server`) spread over the compute nodes, the HELICS federates can sit on different nodes, and users upload grid models (MATPOWER `.m`) and scenario files (YAML/JSON) and see the results in the Node-RED dashboard (*Experiments* and *Results* pages). The cluster image is built entirely from source (`cluster/Dockerfile`), and `cluster/docker-compose.yml` starts a head and two compute nodes on one machine to try it:
+
+```bash
+docker build -f cluster/Dockerfile -t cps-testbed-cluster .
+docker compose -f cluster/docker-compose.yml up -d
+# http://localhost:1880/dashboard/experiments
+```
+
 ## Features
 
 - **Bus systems:** IEEE 14, 30, 39, 57, 118 and 300 (`cases/`, generated from MATPOWER data by `tools/make_cases.py`). GridPACK agrees with an independent Newton-Raphson solver to within 5×10⁻⁷ pu on all six.
@@ -75,12 +85,15 @@ cd /home/ubuntu/cps-testbed/federates
 
 ```
 cases/           IEEE 14–300 bus GridPACK inputs, topology, reference solutions
-federates/       grid_fed.py, cc_fed.py, run_experiment.py, cpslib/ (network, placement, estimation, attacks)
+cluster/         cluster image (built from source), docker-compose virtual cluster, entrypoint, README
+gridpack/        pf_server: persistent MPI GridPACK power-flow solver driven by the grid federate
+federates/       grid_fed.py, cc_fed.py, run_experiment.py, cpslib/ (network, placement, estimation, attacks,
+                 grids: uploaded grid models, cluster: placement of federates on nodes)
 ns3-scratch/     NS-3 federate (helicstest.cc: legacy single-PMU mode + multi-PMU --config mode)
-webapp/          FastAPI app + browser UI
+webapp/          FastAPI app (experiments, grid and scenario uploads, cluster status) + browser UI
 tools/           make_cases.py
 scenario/        legacy single-PMU scripts and sample results
-node-red/        legacy dashboard flows and settings
+node-red/        dashboard flows: Experiments and Results pages (cluster) and the legacy IEEE 14 console
 docker/          Dockerfile (multi-stage), Dockerfile.dev, build_petsc.sh, start.sh
 documentation/   user guide and technical report (PDF)
 ```
