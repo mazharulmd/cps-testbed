@@ -16,7 +16,9 @@ A **web application** (`webapp/`, port 8080) lets users pick a bus system and sc
       └──── setpoint applied ◀── NS-3: generator node ◀── command ────────┘
 ```
 
-📘 **Documentation:** the user guide (how to use the web app and the Node-RED dashboard) and the technical report (architecture, validation and experiment results) are in [`documentation/`](documentation/).
+📘 **User guide:** [CPS_Testbed_User_Guide.pdf](documentation/CPS_Testbed_User_Guide.pdf): how to open and use the web app and the Node-RED dashboard, every input and output explained, worked examples.
+
+📄 **Technical report:** [CPS_Testbed_Technical_Report.pdf](documentation/CPS_Testbed_Technical_Report.pdf): architecture, validation, PMU placement and experiment results for the single-PMU prototype and the extended multi-PMU testbed.
 
 ## Features
 
@@ -80,7 +82,7 @@ tools/           make_cases.py
 scenario/        legacy single-PMU scripts and sample results
 node-red/        legacy dashboard flows and settings
 docker/          Dockerfile (multi-stage), Dockerfile.dev, build_petsc.sh, start.sh
-documentation/   user guide and technical report
+documentation/   user guide and technical report (PDF)
 ```
 
 ## Run it locally (Docker)
