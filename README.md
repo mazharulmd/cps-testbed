@@ -22,7 +22,7 @@ A **web application** (`webapp/`, port 8080) lets users pick a bus system and sc
 
 ## Cluster: GridPACK on MPI, uploads, remote dashboard
 
-The testbed also runs as a cluster ([`cluster/`](cluster/README.md)): GridPACK is a persistent MPI job (`gridpack/pf_server`) spread over the compute nodes, the HELICS federates can sit on different nodes, and users upload grid models (MATPOWER `.m`) and scenario files (YAML/JSON) and see the results in the Node-RED dashboard (*Experiments* and *Results* pages). The cluster image is built entirely from source (`cluster/Dockerfile`), and `cluster/docker-compose.yml` starts a head and two compute nodes on one machine to try it:
+The testbed also runs as a cluster ([`cluster/`](cluster/README.md)): GridPACK is a persistent MPI job (`gridpack/pf_server`) spread over the compute nodes, the HELICS federates can sit on different nodes, and users upload grid models (MATPOWER `.m`) and scenario files (YAML/JSON), follow a running experiment live and see the results in the Node-RED dashboard (*Experiments*, *Live* and *Results* pages). The cluster image is built entirely from source (`cluster/Dockerfile`), and `cluster/docker-compose.yml` starts a head and two compute nodes on one machine to try it:
 
 ```bash
 docker build -f cluster/Dockerfile -t cps-testbed-cluster .
@@ -87,7 +87,7 @@ cd /home/ubuntu/cps-testbed/federates
 cases/           IEEE 14–300 bus GridPACK inputs, topology, reference solutions
 cluster/         cluster image (built from source), docker-compose virtual cluster, entrypoint, README
 gridpack/        pf_server: persistent MPI GridPACK power-flow solver driven by the grid federate
-federates/       grid_fed.py, cc_fed.py, run_experiment.py, cpslib/ (network, placement, estimation, attacks,
+federates/       grid_fed.py, cc_fed.py, observer_fed.py (live view), run_experiment.py, cpslib/ (network, placement, estimation, attacks,
                  grids: uploaded grid models, cluster: placement of federates on nodes)
 ns3-scratch/     NS-3 federate (helicstest.cc: legacy single-PMU mode + multi-PMU --config mode)
 webapp/          FastAPI app (experiments, grid and scenario uploads, cluster status) + browser UI

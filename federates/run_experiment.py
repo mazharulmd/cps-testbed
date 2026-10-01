@@ -153,21 +153,26 @@ def grid_name(args, topo):
 
 
 def run_federation(run_dir, cl, port):
-    """Start the broker and the three federates on their nodes; stop all if one fails."""
+    """Start the broker, the three federates and the observer on their nodes; stop all if one fails."""
     where = {r: cl["placement"].get(r, cl["head"]) for r in ("broker", "grid", "ns3", "cc")}
+    where["observer"] = where["broker"]      # the live dashboard reads its output on the head
     cfg = os.path.join(run_dir, "run_config.json")
     cc_cfg = os.path.join(run_dir, "cc_config.json")
     run = json.load(open(cfg))
     json.dump(dict(run, helics_core_init=run["cc_core_init"]), open(cc_cfg, "w"), indent=1)
+    obs_cfg = os.path.join(run_dir, "observer_config.json")
+    json.dump(dict(run, helics_core_init=cluster.core_init(cl, where["observer"], run["helics_port"])),
+              open(obs_cfg, "w"), indent=1)
     argv = {
         "broker": cluster.broker_args(port),
         "grid": [PY, os.path.join(HERE, "grid_fed.py"), cfg],
         "cc": [PY, os.path.join(HERE, "cc_fed.py"), cc_cfg],
         "ns3": [NS3_BIN, f"--config={os.path.join(run_dir, 'ns3_config.json')}"],
+        "observer": [PY, os.path.join(HERE, "observer_fed.py"), obs_cfg],
     }
     logs = {n: open(os.path.join(run_dir, f"{n}.log"), "w") for n in argv}
     procs = {}
-    for n in ("broker", "grid", "cc", "ns3"):
+    for n in ("broker", "grid", "cc", "ns3", "observer"):
         procs[n] = cluster.launch(where[n], argv[n], logs[n], HERE)
         if n == "broker":
             time.sleep(0.5)

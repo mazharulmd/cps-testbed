@@ -62,6 +62,9 @@ def main(cfg_path):
     h.helicsFederateInfoSetCoreInitString(fi, cfg.get("helics_core_init", "--federates=1"))
     fed = h.helicsCreateValueFederate("control_center", fi)
     pub = h.helicsFederateRegisterGlobalPublication(fed, "cc/commands", h.HELICS_DATA_TYPE_STRING, "")
+    # what the control center sees, for observers (the live dashboard); nothing in the loop subscribes
+    pub_status = h.helicsFederateRegisterGlobalPublication(fed, "cc/status", h.HELICS_DATA_TYPE_STRING, "")
+    est_every, last_est_t = cfg.get("grid_step", 0.5), -1e9
     sub = h.helicsFederateRegisterSubscription(fed, "ns3/pdc", "")
     h.helicsFederateEnterExecutingMode(fed)
     print(f"[CC] state estimation over {len(layout.pmus)} PMUs, BDD={'on' if cfg['bdd'] else 'off'}, "
@@ -82,7 +85,7 @@ def main(cfg_path):
         t = h.helicsFederateRequestTime(fed, T)
         if not h.helicsInputIsUpdated(sub):
             continue
-        cmds = []
+        cmds, sets, vm_send = [], [], None
         for s in json.loads(h.helicsInputGetString(sub)):
             meas = {}
             for bus, d in s["pmus"].items():
@@ -124,6 +127,15 @@ def main(cfg_path):
                          f"{vm.max():.5f}", net.bus_ids[int(vm.argmax())], f"{vm.min():.5f}",
                          net.bus_ids[int(vm.argmin())], len(viol), len(cmds)])
             ew.writerow([f"{s['t']:.6f}"] + [f"{x:.5f}" for x in vm])
+            sets.append({"t": round(s["t"], 6), "J": round(float(r["first_J"]), 3), "thr": round(float(r["threshold"]), 3),
+                         "alarm": int(r["first_alarm"]), "complete": round(len(s["pmus"]) / max(s["expected"], 1), 4),
+                         "removed": [layout.pmus[p]["bus"] for p in r["removed_pmus"]], "viol": len(viol),
+                         "max_v": round(float(vm.max()), 5), "max_bus": net.bus_ids[int(vm.argmax())]})
+            if s["t"] - last_est_t >= est_every - 1e-9:
+                vm_send, last_est_t = (round(s["t"], 6), [round(float(x), 5) for x in vm]), s["t"]
+        if sets:
+            h.helicsPublicationPublishString(pub_status, json.dumps(
+                {"sets": sets, "t_est": vm_send[0] if vm_send else None, "vm_est": vm_send[1] if vm_send else None}))
         if cmds:
             h.helicsPublicationPublishString(pub, json.dumps(cmds))
             for c in cmds:

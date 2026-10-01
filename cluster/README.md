@@ -9,9 +9,9 @@ in the Node-RED dashboard from their browser.
                      browser (remote user)
                             │  Node-RED dashboard :1880  ·  experiment API :8080
 ┌───────────────────────────▼────────────────────────── head ─┐
-│ Node-RED: Experiments / Results / IEEE 14 console           │
+│ Node-RED: Experiments / Live / Results / IEEE 14 console    │
 │ experiment API: queue, grid + scenario uploads, results     │
-│ HELICS broker (one per experiment, own port)                │
+│ HELICS broker (one per experiment, own port), observer      │
 │ grid federate ──stdin/stdout──► mpirun ─┐                   │
 └─────────────────────────────────────────┼───────────────────┘
           HELICS (ZMQ/TCP)                │ MPI (ssh launch, TCP)
@@ -32,7 +32,8 @@ in the Node-RED dashboard from their browser.
 | Placement of federates | `federates/cpslib/cluster.py`, `run_experiment.py` | Reads `/shared/cluster.json`; starts the broker and each federate on its node over ssh; each experiment gets its own HELICS port so several can run at once. |
 | Scheduling | `webapp/app.py` | Up to `CPS_MAX_JOBS` experiments at once, but a run starts only when its GridPACK ranks fit in the free MPI slots; the others wait in the queue ("waiting for N MPI slots"). MPI ranks busy-wait, so oversubscribing the slots made two parallel 4-rank runs about ten times slower (150 s instead of 13 s each). |
 | Uploads | `federates/cpslib/grids.py`, `webapp/scenario.py` | MATPOWER `.m` (or testbed `topology.json`) grid models; YAML/JSON scenario files (`webapp/scenario_template.yaml`). |
-| Dashboard | `node-red/flows.json` (tab *CPS Cluster*) | Experiments page: cluster nodes, uploads, grid list, queue. Results page: runs, summary, charts (voltages, chi-square, GridPACK time per step, latency, PDC completeness, per-PMU delivery), commands. |
+| Live view | `federates/observer_fed.py` | A fourth HELICS federate on the head that only subscribes: true grid state (`grid/status`), what the control center sees (`cc/status`), commands issued and delivered. No federate waits for it. It writes `live.json` in the run directory about twice a second; the API serves it at `/api/live`. |
+| Dashboard | `node-red/flows.json` (tab *CPS Cluster*) | Experiments page: cluster nodes, uploads, grid list, queue. Live page: the running experiment, updated every second (progress, highest true and estimated voltage, alarms, chi-square, PDC completeness, any bus, commands as they are issued, delivered and applied). Results page: runs, summary, charts (voltages, chi-square, GridPACK time per step, latency, PDC completeness, per-PMU delivery), commands. |
 | Image | `cluster/Dockerfile` | Built from source on Ubuntu 24.04: OpenMPI 4.1, PETSc 3.19 (MUMPS), ParMETIS, Global Arrays 5.9, GridPACK 3.5, HELICS 3.6.1, NS-3.48, Node-RED 4.1 + Dashboard 2. One image for every node. |
 
 ## Try it on one machine (virtual cluster)
@@ -61,7 +62,11 @@ ports to anyone else.
 2. **Scenario.** Download the *scenario template*, edit it (grid, duration, `mpi_np`, network,
    event, attack, control) and upload it. A file can hold several experiments under
    `scenarios:`. Each one is validated, queued and run on the cluster.
-3. **Results.** The *Results* page opens each finished run: summary figures, voltage and
+3. **Live.** While an experiment runs, the *Live* page follows it second by second: the
+   voltages GridPACK computes next to what the control center estimates, bad data alarms,
+   PDC completeness, and each command from the moment it is issued until GridPACK applies it.
+   Enter a bus number to follow another bus; the whole history of that bus is shown.
+4. **Results.** The *Results* page opens each finished run: summary figures, voltage and
    chi-square charts, GridPACK solve time per step for the chosen number of MPI ranks, network
    latency and delivery, and the commands sent to the grid. Raw files are in
    `/shared/runs/<run id>/`.
@@ -104,6 +109,7 @@ On the virtual cluster (head + 2 nodes, all three containers on one 4-core machi
 | IEEE 118, AVR fault + 5% packet loss | 18.1% complete PDC sets, violation still corrected in 0.5 s, as in the main README |
 | IEEE 118, 60% load step at bus 59, GridPACK (4 ranks) and built-in solver | True bus voltages identical to six decimals at every step |
 | Legacy IEEE 14 console script | 13/14 delivered, bus 8 over-voltage detected, as before |
+| Live page during a 30 s IEEE 118 run (fault at 8 s, FDI 8-20 s) | Updated every second while running; showed the command issued at 8.067 s, delivered at 8.107 s and applied at 8.5 s as they happened. With the observer the 10 s IEEE 118 run took 12.3 and 13.7 s (12.2 s without) |
 
 `pf_server` against the testbed's Newton-Raphson solver (four operating points with load and
 setpoint changes): IEEE 118 and ACTIVSg2000 agree to 5×10⁻¹⁰ pu, ACTIVSg10k to 6×10⁻⁵ pu.

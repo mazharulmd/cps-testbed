@@ -57,6 +57,8 @@ def main(cfg_path):
     h.helicsFederateInfoSetFlagOption(fi, h.HELICS_FLAG_UNINTERRUPTIBLE, True)
     fed = h.helicsCreateValueFederate("grid", fi)
     pub = h.helicsFederateRegisterGlobalPublication(fed, "grid/meas", h.HELICS_DATA_TYPE_STRING, "")
+    # true state for observers (the live dashboard); no federate in the loop depends on it
+    pub_status = h.helicsFederateRegisterGlobalPublication(fed, "grid/status", h.HELICS_DATA_TYPE_STRING, "")
     sub = h.helicsFederateRegisterSubscription(fed, "ns3/cmd_delivered", "")
     h.helicsFederateEnterExecutingMode(fed)
     print(f"[GRID] {len(topo['buses'])}-bus system, {len(cfg['pmu_buses'])} PMUs, solver={cfg['solver']}", flush=True)
@@ -79,6 +81,7 @@ def main(cfg_path):
         if t > T + 1e-9:
             break
         h.helicsFederateRequestTime(fed, t)
+        applied_now = []
         if h.helicsInputIsUpdated(sub):
             for c in json.loads(h.helicsInputGetString(sub) or "[]"):
                 if c.get("id") in seen_cmds:
@@ -86,6 +89,8 @@ def main(cfg_path):
                 seen_cmds.add(c.get("id"))
                 vset[c["gen_bus"]] = c["vset"]
                 aw.writerow([t, c["gen_bus"], c["vset"], c.get("issued_t"), c.get("delivered_t"), c.get("reason", "")])
+                applied_now.append({"gen_bus": c["gen_bus"], "vset": c["vset"], "issued_t": c.get("issued_t"),
+                                    "delivered_t": c.get("delivered_t"), "reason": c.get("reason", "")})
                 print(f"[GRID] t={t:.2f}s command applied: gen {c['gen_bus']} vset -> {c['vset']:.3f} pu", flush=True)
         # loads
         walk = walk + lp["walk"] * np.sqrt(dt) * rng.standard_normal(net.n)
@@ -97,6 +102,7 @@ def main(cfg_path):
         if ev.get("type") == "avr_fault" and ev.get("t") <= t and not ev.get("_done"):
             vset[ev["bus"]] = ev["vset"]; ev["_done"] = True
             aw.writerow([t, ev["bus"], ev["vset"], "", "", "event: AVR setpoint fault"])
+            applied_now.append({"gen_bus": ev["bus"], "vset": ev["vset"], "reason": "event: AVR setpoint fault"})
             print(f"[GRID] t={t:.2f}s EVENT: AVR fault at gen {ev['bus']}, vset -> {ev['vset']}", flush=True)
         # solve
         V, it, ok, used = None, 0, False, cfg["solver"]
@@ -121,6 +127,8 @@ def main(cfg_path):
                      f"{1000 * float(srv['t_solve']):.2f}" if used == "gridpack" and "t_solve" in srv else ""])
         meas = {str(pm["bus"]): ph for pm, ph in zip(layout.pmus, layout.measure(V))}
         h.helicsPublicationPublishString(pub, json.dumps({"t": t, "pmus": meas}))
+        h.helicsPublicationPublishString(pub_status, json.dumps(
+            {"t": t, "vm": [round(float(x), 5) for x in vm], "solver": used, "applied": applied_now}))
         k += 1
 
     for f in (truth, applied, steps):

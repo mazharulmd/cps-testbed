@@ -371,6 +371,41 @@ def get_run(run_id: str, _=Depends(auth)):
             "commands": read_csv(os.path.join(d, "commands_applied.csv"))}
 
 
+@app.get("/api/live")
+def live(run: Optional[str] = None, bus: Optional[int] = None, _=Depends(auth)):
+    """Live state of a running experiment, written by its observer federate (live.json).
+    Without a running experiment, the final state of the most recent one."""
+    active = [j["run_id"] for j in sorted(jobs.values(), key=lambda x: x["submitted"])
+              if j["status"] == "running" and j.get("run_id")]
+    pick = run if run in active else (active[0] if active else None)
+    if pick is None:
+        done = [d for d in sorted(os.listdir(RESULTS), reverse=True)
+                if os.path.exists(os.path.join(RESULTS, d, "live.json"))]
+        pick = run if run in done else (done[0] if done else None)
+    if pick is None or not re.match(r"^[0-9]{8}_[0-9]{6}_[A-Za-z0-9_-]+$", pick):
+        return {"active": active, "live": None}
+    d = os.path.join(RESULTS, pick)
+    if bus is not None:
+        # the observer reads this file and switches the per-bus series (it keeps the whole history)
+        tmp = os.path.join(d, ".watch.tmp")
+        with open(tmp, "w") as fh:
+            json.dump({"bus": bus}, fh)
+        os.replace(tmp, os.path.join(d, "watch.json"))
+    try:
+        state = json.load(open(os.path.join(d, "live.json")))
+    except (OSError, ValueError):
+        state = {"run_id": pick, "starting": True}
+    if state.get("done") and bus is not None and bus != state.get("bus") and \
+            os.path.exists(os.path.join(d, "summary.json")):
+        # the observer has finished; take the other bus from the saved results
+        try:
+            ser = series(pick, bus)
+            state.update(bus=bus, truth=ser["truth"], estimate=ser["estimate"])
+        except HTTPException:
+            pass
+    return {"active": active, "live": state}
+
+
 @app.get("/api/runs/{run_id}/series")
 def series(run_id: str, bus: Optional[int] = None, _=Depends(auth)):
     d = run_dir(run_id)

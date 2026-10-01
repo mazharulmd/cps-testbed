@@ -57,8 +57,8 @@ def core_init(cfg, host, port):
     return f"--federates=1 --broker_address=tcp://{broker}:{port} --local_interface=tcp://{host}"
 
 
-def broker_args(port):
-    return ["helics_broker", "-f", "3", "--loglevel=warning", f"--port={port}",
+def broker_args(port, federates=4):
+    return ["helics_broker", "-f", str(federates), "--loglevel=warning", f"--port={port}",
             "--local_interface=tcp://0.0.0.0"]
 
 
