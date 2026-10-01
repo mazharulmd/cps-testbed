@@ -15,6 +15,13 @@ gridpack_setup()
 add_definitions(${GRIDPACK_DEFINITIONS})
 include_directories(BEFORE ${GRIDPACK_INCLUDE_DIRS})
 
+# Ubuntu's PETSc names "-lhdf5" among its libraries; the MPI build of HDF5 lives in its own directory
+foreach(dir /usr/lib/x86_64-linux-gnu/hdf5/openmpi /usr/lib/aarch64-linux-gnu/hdf5/openmpi)
+  if (EXISTS ${dir})
+    link_directories(${dir})
+  endif()
+endforeach()
+
 add_executable(pf_server pf_server.cpp)
 target_link_libraries(pf_server ${GRIDPACK_LIBS})
 install(TARGETS pf_server DESTINATION bin)

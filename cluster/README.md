@@ -90,6 +90,34 @@ The head writes `/shared/cluster.json` and `/shared/hostfile` at start-up; edit 
 variables and restart the head to change the layout. Remote users reach the dashboard through
 the institution's VPN or an SSH tunnel to the head, as described in the user guide.
 
+## Tested
+
+On the virtual cluster (head + 2 nodes, all three containers on one 4-core machine):
+
+| Experiment | Result |
+|---|---|
+| IEEE 118, AVR fault at gen 49 (t = 4 s) + simple FDI on bus 49, GridPACK on 4 ranks (node1 + node2), NS-3 on node1, control center on node2 | Same outcome as the single-server testbed and the user guide example: violation 0.5 s, FDI detected in one frame (0.033 s), PMU 49 removed, command issued at 4.067 s, delivered at 4.107 s, applied at 4.5 s; 9568/9568 frames delivered |
+| ACTIVSg2000 (2000-bus Texas grid, uploaded as MATPOWER `.m`), 512 PMUs, AVR fault at gen 1004 + simple FDI | 76 288 frames delivered; violation corrected within one grid step (0.5 s). The FDI falsifies a current channel of PMU 3133 that is a critical measurement, so it is not detected (minimum placement; see the main README) |
+| Two ACTIVSg2000 experiments queued from one scenario file | Ran at the same time on HELICS ports 23600 and 23700, both completed correctly |
+| Legacy IEEE 14 console script | 13/14 delivered, bus 8 over-voltage detected, as before |
+
+`pf_server` against the testbed's Newton-Raphson solver (four operating points with load and
+setpoint changes): IEEE 118 and ACTIVSg2000 agree to 5×10⁻¹⁰ pu, ACTIVSg10k to 6×10⁻⁵ pu.
+MPI solve time per grid step:
+
+| Grid | 1 rank | 2 ranks | 4 ranks |
+|---|---|---|---|
+| IEEE 118, ranks in one container | 6–16 ms | 15–27 ms | 15–31 ms |
+| IEEE 118, 4 ranks split over node1 and node2 | | | 61–71 ms |
+| ACTIVSg2000, one container | 104–120 ms | 78–116 ms | 55–97 ms |
+| ACTIVSg10k, one container | 526–638 ms | 452–624 ms | 356–508 ms |
+
+Small grids are fastest on one rank: the work per solve is tiny and every extra rank adds MPI
+messages (about 60 ms per solve when the ranks span two containers over TCP). The 10 000-bus
+grid gets faster with more ranks even on four shared cores; on separate machines with their
+own cores the gain is larger. When several co-simulations run at once on the same few cores,
+GridPACK's times rise because MPI ranks, NS-3 and the control center compete for the CPU.
+
 ## Limits
 
 - The grid model is quasi-steady-state (power flow every grid step), as in the rest of the

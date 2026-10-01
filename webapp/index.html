@@ -378,7 +378,7 @@ async function refreshJobs() {
   $("#hdrtext").textContent = active ? `Running · ${active} in queue` : "Idle · ready";
   $("#jobs").innerHTML = jobs.length ? jobs.slice(0, 5).map(j => `
     <div class="job"><div class="job-top">${statusBadge(j.status)}
-    <b>${esc(j.request.name)}</b> <span class="muted">IEEE ${esc(j.request.case)} · attack ${esc(j.request.attack)}${j.run_id ? " · " + esc(j.run_id) : ""}</span></div>
+    <b>${esc(j.request.name)}</b> <span class="muted">${esc(j.grid || "IEEE " + j.request.case)} · attack ${esc(j.request.attack)}${j.run_id ? " · " + esc(j.run_id) : ""}</span></div>
     ${j.status === "running" || j.status === "failed" ? `<pre>${esc(j.log_tail || "starting…")}</pre>` : ""}</div>`).join("") : '<div class="muted">No jobs yet. Choose a preset or set parameters, then run.</div>';
   // open a run that finished while this page was open (not ones that were already done when it loaded)
   const done = jobs.filter(j => j.status === "done").map(j => j.run_id);
@@ -393,7 +393,7 @@ async function refreshRuns() {
   const onoff = v => `<span class="badge ${v === "on" ? "neutral" : "warn"}">${esc(v)}</span>`;
   $("#runs").innerHTML = runs.length ? runs.map(r => `<tr data-id="${esc(r.id)}" class="${r.id === current ? "sel" : ""}">
     <td><b>${esc(r.name)}</b><div class="sub">${esc(r.id.slice(0, 8))} ${esc(r.id.slice(9, 15).replace(/(..)(..)(..)/, "$1:$2:$3"))}</div></td>
-    <td>IEEE ${esc(r.case)}</td><td>${r.attack === "none" ? '<span class="muted">none</span>' : `<span class="badge warn">${esc(r.attack)}</span>`}</td>
+    <td>${esc(r.grid || "IEEE " + r.case)}</td><td>${r.attack === "none" ? '<span class="muted">none</span>' : `<span class="badge warn">${esc(r.attack)}</span>`}</td>
     <td>${r.loss}</td><td>${onoff(r.bdd)}</td><td>${onoff(r.control)}</td>
     <td>${r.violation_s > 1 ? `<span class="badge bad">${r.violation_s}</span>` : `<span class="badge ok">${r.violation_s}</span>`}</td>
     <td>${r.detection == null ? '<span class="muted">–</span>' : r.detection + "%"}</td><td>${(100 * r.delivery).toFixed(1)}%</td></tr>`).join("")
