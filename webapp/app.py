@@ -95,27 +95,54 @@ lock = threading.Lock()
 CLUSTER = cluster.load()
 
 
+# MPI slots in use: a run starts only when its GridPACK ranks fit, because MPI ranks
+# busy-wait and an oversubscribed node slows every experiment on it many times over
+slot_cv = threading.Condition()
+slots = {"total": cluster.mpi_slots(CLUSTER), "used": 0}
+
+
+def ranks_of(job):
+    r = job["request"]
+    return min(r["mpi_np"], slots["total"]) if r["solver"] == "gridpack" else 1
+
+
 def worker(slot):
     """One of max_parallel_jobs workers; each owns a HELICS port range so runs can overlap."""
     port = CLUSTER["helics_port_base"] + 100 * (slot + 1)
     while True:
         jid = job_queue.get()
         job = jobs[jid]
-        job.update(status="running", started=time.time(), worker=slot)
-        log_path = os.path.join(RESULTS, f".job_{jid}.log")
-        with open(log_path, "w") as log:
-            p = subprocess.Popen([sys.executable, os.path.join(FED, "run_experiment.py")] + job["argv"] +
-                                 ["--helics-port", str(port), "--out", RESULTS],
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                 text=True, cwd=FED)
-            for line in p.stdout:
-                log.write(line); log.flush()
-                m = re.match(r"\[RUN\] (\S+):", line)
-                if m:
-                    job["run_id"] = m.group(1)
-            code = p.wait()
-        ok = code == 0 and job.get("run_id") and os.path.exists(os.path.join(RESULTS, job["run_id"], "summary.json"))
-        job.update(status="done" if ok else "failed", finished=time.time(), log=log_path)
+        need = ranks_of(job)
+        with slot_cv:
+            while slots["used"] + need > slots["total"]:
+                job["waiting"] = f"for {need} MPI slots"
+                slot_cv.wait()
+            slots["used"] += need
+            job.pop("waiting", None)
+        try:
+            run_job(job, jid, slot, port)
+        finally:
+            with slot_cv:
+                slots["used"] -= need
+                slot_cv.notify_all()
+
+
+def run_job(job, jid, slot, port):
+    job.update(status="running", started=time.time(), worker=slot)
+    log_path = os.path.join(RESULTS, f".job_{jid}.log")
+    with open(log_path, "w") as log:
+        p = subprocess.Popen([sys.executable, os.path.join(FED, "run_experiment.py")] + job["argv"] +
+                             ["--helics-port", str(port), "--out", RESULTS],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             text=True, cwd=FED)
+        for line in p.stdout:
+            log.write(line); log.flush()
+            m = re.match(r"\[RUN\] (\S+):", line)
+            if m:
+                job["run_id"] = m.group(1)
+        code = p.wait()
+    ok = code == 0 and job.get("run_id") and os.path.exists(os.path.join(RESULTS, job["run_id"], "summary.json"))
+    job.update(status="done" if ok else "failed", finished=time.time(), log=log_path)
 
 
 for _slot in range(max(1, int(CLUSTER["max_parallel_jobs"]))):
@@ -297,7 +324,7 @@ def delete_grid(grid_id: str, _=Depends(auth)):
 @app.get("/api/cluster")
 def cluster_status(_=Depends(auth)):
     running = [j for j in jobs.values() if j["status"] == "running"]
-    return {"nodes": cluster.status(CLUSTER), "mpi_slots": cluster.mpi_slots(CLUSTER),
+    return {"nodes": cluster.status(CLUSTER), "mpi_slots": cluster.mpi_slots(CLUSTER), "mpi_slots_used": slots["used"],
             "default_np": CLUSTER["mpi"].get("default_np", 1), "max_parallel_jobs": CLUSTER["max_parallel_jobs"],
             "placement": CLUSTER["placement"], "running": len(running),
             "queued": sum(1 for j in jobs.values() if j["status"] == "queued")}

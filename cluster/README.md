@@ -30,6 +30,7 @@ in the Node-RED dashboard from their browser.
 | MPI power flow | `gridpack/pf_server/pf_server.cpp` | Started once per experiment with `mpirun -np N`. GridPACK reads and partitions the network once; every grid step only the changed loads and generator setpoints are sent to rank 0, broadcast, applied and solved. Voltages are gathered back to rank 0. |
 | Grid federate | `federates/grid_fed.py`, `cpslib/gridpack.py` (`GridPackMPISolver`) | Drives `pf_server` over its stdin/stdout. Logs the whole step time and the MPI solve time of every step (`grid_steps.csv`). |
 | Placement of federates | `federates/cpslib/cluster.py`, `run_experiment.py` | Reads `/shared/cluster.json`; starts the broker and each federate on its node over ssh; each experiment gets its own HELICS port so several can run at once. |
+| Scheduling | `webapp/app.py` | Up to `CPS_MAX_JOBS` experiments at once, but a run starts only when its GridPACK ranks fit in the free MPI slots; the others wait in the queue ("waiting for N MPI slots"). MPI ranks busy-wait, so oversubscribing the slots made two parallel 4-rank runs about ten times slower (150 s instead of 13 s each). |
 | Uploads | `federates/cpslib/grids.py`, `webapp/scenario.py` | MATPOWER `.m` (or testbed `topology.json`) grid models; YAML/JSON scenario files (`webapp/scenario_template.yaml`). |
 | Dashboard | `node-red/flows.json` (tab *CPS Cluster*) | Experiments page: cluster nodes, uploads, grid list, queue. Results page: runs, summary, charts (voltages, chi-square, GridPACK time per step, latency, PDC completeness, per-PMU delivery), commands. |
 | Image | `cluster/Dockerfile` | Built from source on Ubuntu 24.04: OpenMPI 4.1, PETSc 3.19 (MUMPS), ParMETIS, Global Arrays 5.9, GridPACK 3.5, HELICS 3.6.1, NS-3.48, Node-RED 4.1 + Dashboard 2. One image for every node. |
@@ -99,6 +100,9 @@ On the virtual cluster (head + 2 nodes, all three containers on one 4-core machi
 | IEEE 118, AVR fault at gen 49 (t = 4 s) + simple FDI on bus 49, GridPACK on 4 ranks (node1 + node2), NS-3 on node1, control center on node2 | Same outcome as the single-server testbed and the user guide example: violation 0.5 s, FDI detected in one frame (0.033 s), PMU 49 removed, command issued at 4.067 s, delivered at 4.107 s, applied at 4.5 s; 9568/9568 frames delivered |
 | ACTIVSg2000 (2000-bus Texas grid, uploaded as MATPOWER `.m`), 512 PMUs, AVR fault at gen 1004 + simple FDI | 76 288 frames delivered; violation corrected within one grid step (0.5 s). The FDI falsifies a current channel of PMU 3133 that is a critical measurement, so it is not detected (minimum placement; see the main README) |
 | Two ACTIVSg2000 experiments queued from one scenario file | Ran at the same time on HELICS ports 23600 and 23700, both completed correctly |
+| IEEE 118, AVR fault + delay attack (100 ms) on the PMUs around bus 49 | Violation 5.5 s, PMUs 45 and 49 delayed, 49.7% complete PDC sets, as in the main README |
+| IEEE 118, AVR fault + 5% packet loss | 18.1% complete PDC sets, violation still corrected in 0.5 s, as in the main README |
+| IEEE 118, 60% load step at bus 59, GridPACK (4 ranks) and built-in solver | True bus voltages identical to six decimals at every step |
 | Legacy IEEE 14 console script | 13/14 delivered, bus 8 over-voltage detected, as before |
 
 `pf_server` against the testbed's Newton-Raphson solver (four operating points with load and
